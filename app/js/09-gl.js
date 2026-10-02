@@ -654,7 +654,8 @@
         const isVoid = w.void[i] === 1;
         const dx = x + 0.5 - w.cx, dy = y + 0.5 - w.cy;
         const r = Math.sqrt(dx * dx + dy * dy);
-        const indoor = r >= MV.K.R2B && r < MV.K.RAV0;
+        /* CPU hattıyla aynı kural: yalnızca Kayran açık gökyüzü, dışı örtülü */
+        const indoor = r >= MV.K.R1 - 0.5;
         /* açıklık → AO: komşu duvar sayısı */
         let open = 0;
         for (let d = 0; d < 4; d++) {
@@ -663,7 +664,12 @@
           if (w.solid[ny * w.W + nx] !== 1) open++;
         }
         const ao = 0.62 + 0.095 * open;                       /* 0..1 arası yumuşak ambient occlusion */
-        const shade = indoor ? 0.52 + 0.10 * open : 1.0;      /* kapalı koridor daha az güneş alır */
+        /* bölgeye göre ortam ışığı: Kayran açık, koru yarı açık, labirent kapalı */
+        let shade;
+        if (!indoor) shade = 1.0;
+        else if (r < MV.K.R2B) shade = 0.88 + 0.035 * open;    // koru halkası
+        else if (r < MV.K.RAV0) shade = 0.62 + 0.09 * open;    // labirent kuşağı
+        else shade = 0.76 + 0.05 * open;                       // dış kuşak
 
         if (solid) {
           const hgt = w.hscale[i] ? w.hscale[i] / 10 : 4;

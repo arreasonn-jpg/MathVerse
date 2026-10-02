@@ -379,6 +379,23 @@ ok(maxV >= 3.9 && maxV <= 9, 'duvar UV yüksekliği gerçek ölçekte döşeniyo
 ok(badWallU === 0, 'duvar yatay UV hücre içinde kalıyor (taşan: ' + badWallU + ')');
 ok(floorVerts > 100, 'zemin köşesi: ' + floorVerts.toLocaleString('tr-TR'));
 
+/* tavan kuralı: Kayran'da açık, dışında örtülü (CPU hattıyla aynı) */
+let ceilVerts = 0, gladeFloor = 0, coveredFloor = 0;
+for (const arr of glImpl._meshes) {
+  for (let i = 0; i < arr.length; i += F) {
+    const py = arr[i + 1], px = arr[i], pz = arr[i + 2];
+    if (py > 3.9 && py < 4.1) ceilVerts++;
+    const dx = px - world.cx, dz = pz - world.cy;
+    const r2 = dx * dx + dz * dz;
+    if (py < 0.01) {
+      if (r2 < (MV.K.R1 - 1) * (MV.K.R1 - 1)) gladeFloor++;
+      else if (r2 > (MV.K.R1 + 2) * (MV.K.R1 + 2)) coveredFloor++;
+    }
+  }
+}
+ok(ceilVerts > 0, 'kubbe/tavan köşeleri var: ' + ceilVerts.toLocaleString('tr-TR'));
+ok(gladeFloor > 0 && coveredFloor > 0, 'Kayran zemini ve dış zemin ayrı ayrı üretildi (' + gladeFloor + ' / ' + coveredFloor + ')');
+
 /* bölüm kurulum süresi: kare takılması olmasın */
 GL.invalidate();
 const t0 = process.hrtime.bigint();
