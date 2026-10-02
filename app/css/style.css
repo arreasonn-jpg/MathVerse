@@ -38,7 +38,7 @@ body{
    gerçek çözünürlük + çift doğrusal yükseltme kullanılır (piksel görünümü yok) */
 html[data-raster="cpu"] #view{image-rendering:pixelated;image-rendering:crisp-edges}
 html[data-raster="gl"] #view{background:transparent}
-html[data-raster="gl"] .fx-scan{opacity:.10}
+html[data-raster="gl"] .fx-scan{opacity:.05}
 html[data-raster="gl"] .fx-grain{opacity:.03}
 
 /* ---------------- CRT / sinematik katmanlar ---------------- */
