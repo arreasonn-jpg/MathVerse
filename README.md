@@ -39,6 +39,15 @@ Doku atlası: [`docs/doku-atlasi.png`](docs/doku-atlasi.png) — tüm dokular `a
 | 🎮 **Oyun kolu** | Xbox / DualSense / 8BitDo; takıldığında otomatik algılanır (bkz. Kontroller) |
 | 🖥️ **Tek örnek kilidi** | İkinci kez açılırsa var olan pencere öne gelir |
 
+## İndir ve oyna
+
+Hazır kurulum dosyaları (Windows kurulum + taşınabilir, macOS dmg, Linux AppImage/deb):
+
+**➡ https://github.com/arreasonn-jpg/MathVerse/releases/latest**
+
+Etiket atıldığında (örn. `v1.0.0`) bu paketler GitHub Actions tarafından otomatik üretilir
+(`.github/workflows/paket.yml`); elle tetiklemek için Actions → *Paket üret* → **Run workflow**.
+
 ## Kurulum / Çalıştırma
 
 ### Hazır paket (kullanıcı)
