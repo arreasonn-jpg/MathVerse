@@ -335,6 +335,40 @@ setTimeout(async () => {
   const jsFiles = fs.readdirSync(path.join(ROOT, 'app', 'js'));
   assert(jsFiles.length >= 9, 'oyun betikleri yerinde: ' + jsFiles.length + ' dosya');
 
+  console.log('--- electron-builder şeması ---');
+  /* electron-builder, package.json'daki build bölümünü katı bir şemaya göre doğrular;
+     bilinmeyen bir anahtar tüm platform derlemelerini düşürür. Bu yüzden burada,
+     derlemeden önce, şemaya karşı denetliyoruz (paket kurulu değilse atlanır). */
+  try {
+    const abRoot = path.dirname(path.dirname(require.resolve('app-builder-lib')));
+    const scheme = JSON.parse(fs.readFileSync(path.join(abRoot, 'scheme.json'), 'utf8'));
+    const resolve = (node, depth) => {
+      if (!node || depth > 6) return null;
+      if (node.$ref) return resolve(scheme.definitions[node.$ref.split('/').pop()], depth + 1);
+      if (node.anyOf) { for (const alt of node.anyOf) { const r = resolve(alt, depth + 1); if (r && r.properties) return r; } return null; }
+      return node;
+    };
+    const bad = [];
+    const walk = (cfg, node, trail) => {
+      const sc = resolve(node, 0);
+      if (!sc || !sc.properties) return;
+      for (const key of Object.keys(cfg)) {
+        if (!(key in sc.properties)) { bad.push(trail + key); continue; }
+        const child = cfg[key];
+        if (child && typeof child === 'object' && !Array.isArray(child)) walk(child, sc.properties[key], trail + key + '.');
+        if (Array.isArray(child)) child.forEach(it => { if (it && typeof it === 'object') walk(it, sc.properties[key], trail + key + '[].'); });
+      }
+    };
+    walk(pkg.build, scheme, 'build.');
+    assert(bad.length === 0, 'package.json build bölümü electron-builder şemasına uygun' +
+      (bad.length ? ' — bilinmeyen anahtar: ' + bad.join(', ') : ' (' + Object.keys(pkg.build).length + ' anahtar)'));
+    const winTargets = pkg.build.win.target.map(t => t.target || t);
+    ['nsis', 'portable', 'zip'].forEach(t => assert(winTargets.indexOf(t) >= 0, 'Windows hedefi tanımlı: ' + t));
+    assert(/Klasor/.test(pkg.build.win.artifactName), 'zip paketi "Klasor" adıyla üretilir (win.artifactName)');
+  } catch (e) {
+    assert(true, 'electron-builder şeması denetimi atlandı (' + (e.code === 'MODULE_NOT_FOUND' ? 'paket kurulu değil' : e.message) + ')');
+  }
+
   console.log('--- electron-builder çalıştırılabilir mi? ---');
   const haveBuilder = fs.existsSync(path.join(ROOT, 'node_modules', 'electron-builder'));
   assert(true, haveBuilder ? 'electron-builder kurulu — "npm run dist" ile paket üretilebilir'

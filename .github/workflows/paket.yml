@@ -53,9 +53,8 @@ jobs:
       - name: Bağımlılıkları kur
         run: npm install --no-audit --no-fund
 
-      - name: Testler (oyun + masaüstü katmanı + görsel render)
+      - name: Testler (oyun + masaüstü katmanı + paketleme şeması + görsel render)
         run: npm run verify
-        continue-on-error: true
 
       - name: Paketi üret
         run: ${{ matrix.komut }} -- --publish never
