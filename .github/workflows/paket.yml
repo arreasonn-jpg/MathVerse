@@ -144,3 +144,8 @@ jobs:
           for f in dist/*.exe dist/*.zip dist/*.dmg dist/*.AppImage dist/*.deb dist/SHA256SUMS-*.txt; do
             [ -e "$f" ] && gh release upload "$GITHUB_REF_NAME" "$f" --clobber || true
           done
+          # ÖNEMLİ: Bir etiket silinip yeniden oluşturulursa GitHub o sürümü
+          # otomatik olarak TASLAĞA çevirir ve taslak sürümler kimseye görünmez.
+          # Her koşulda taslağı yayına al ve "en son sürüm" olarak işaretle.
+          gh release edit "$GITHUB_REF_NAME" --draft=false --latest || true
+          gh release view "$GITHUB_REF_NAME" --json tagName,isDraft,isLatest 2>/dev/null || true
