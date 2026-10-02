@@ -89,11 +89,25 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            gh release edit "$GITHUB_REF_NAME" --notes-file dist/_icerik.txt || true
-          else
-            gh release create "$GITHUB_REF_NAME" --title "LABİRENT PROTOKOLÜ $GITHUB_REF_NAME" \
-              --notes-file dist/_icerik.txt || true
+          read -r -d '' NOTES <<'EOF' || true
+          **Inferno Protocol görselliğinde, Labirent: Ölümcül Kaçış mantığında birinci şahıs hayatta kalma-korku oyunu.**
+
+          ### İndir
+          | Platform | Dosya |
+          |---|---|
+          | Windows | `LabirentProtokolu-Kurulum-*-x64.exe` — kurulum (masaüstü + Başlat menüsü kısayolu) |
+          | Windows | `LabirentProtokolu-Tasinabilir-*-x64.exe` — kurulumsuz, USB'den çalışır |
+          | macOS | `LabirentProtokolu-*-arm64.dmg` (Apple Silicon) · `-x64.dmg` (Intel) |
+          | Linux | `LabirentProtokolu-*-x86_64.AppImage` (`chmod +x` sonra çift tıkla) · `*-amd64.deb` (`sudo dpkg -i`) |
+
+          ### Çalıştırma
+          1. Dosyayı indir, çalıştır. Windows'ta "bilinmeyen yayıncı" uyarısı çıkarsa **Ek bilgi → Yine de yükle**.
+          2. Oyun Türkçe açılır. Kayıtlar ve ayarlar kullanıcı klasörüne yazılır; kaldırma bunları silmez.
+
+          Kontroller, kayıt konumları, sistem gereksinimleri ve sorun giderme: `docs/KURULUM.md`
+          EOF
+          if ! gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release create "$GITHUB_REF_NAME" --title "LABİRENT PROTOKOLÜ $GITHUB_REF_NAME" --notes "$NOTES" || true
           fi
           for f in dist/*.exe dist/*.dmg dist/*.AppImage dist/*.deb; do
             [ -e "$f" ] && gh release upload "$GITHUB_REF_NAME" "$f" --clobber || true
