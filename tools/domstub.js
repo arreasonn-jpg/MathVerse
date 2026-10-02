@@ -61,7 +61,7 @@ function makeDesktopAPI(dir) {
   const DEFAULT_SETTINGS = {
     quality: 'orta', volume: 0.85, muted: false, sensitivity: 1.0, fov: 1.0,
     invertY: false, shake: true, fps: false, fullscreen: false, hudScale: 1.0,
-    sprintMode: 'basili', crouchMode: 'basili', mouseCurve: 'dengeli', mouseSmoothing: 0.12,
+    sprintMode: 'basili', crouchMode: 'basili', mouseCurve: 'dengeli', mouseSmoothing: 0.05, sensX: 1, sensY: 1, adsSens: 0.62, padMode: 'cift',
     bob: 1.0, assist: true, vibration: true, padDeadzone: 0.18, padCurve: 1.7, padSens: 1.0,
     renderScale: 'auto', keymap: {}
   };

@@ -233,6 +233,11 @@
           this.drawOverlay(v);
           return;
         }
+        /* GPU çizimi düştü: kalıcı olarak CPU hattına geç */
+        this.gl = null; this.useGpu = false;
+        if (typeof document !== 'undefined' && document.documentElement && document.documentElement.setAttribute) {
+          document.documentElement.setAttribute('data-raster', 'cpu');
+        }
       }
       const W = this.W, H = this.H;
       const world = v.world;

@@ -126,6 +126,7 @@
      ============================================================ */
   GL.init = function (canvas2d) {
     if (this.ok) return this;
+    this.prepared = false; this._probed = false;
     try {
       if (typeof document === 'undefined' || !canvas2d || !canvas2d.parentNode) throw new Error('canvas yok');
       const cv = document.createElement('canvas');
@@ -199,12 +200,15 @@
       'uniform vec2 uCell;',                 // 1/COLS, 1/ROWS
       'uniform float uCols;',                // atlas sütun sayısı
       'varying vec2 vUV;',
+      'varying vec2 vCell;',
       'varying vec2 vShade;',
       'varying vec3 vWorld;',
       'varying float vFlags;',
       'void main() {',
-      '  vec2 cell = vec2(mod(aSlot.x, uCols), floor(aSlot.x / uCols));',
-      '  vUV = (cell + clamp(aUV, 0.004, 0.996)) * uCell;',
+      '  /* atlas hücresi + mutlak döşeme UV: duvar yüksekliği 1 birim = 1 doku boyu;',
+      '     4 birimlik duvarda doku 4 kez tekrarlanır (CPU hattıyla aynı yoğunluk) */',
+      '  vCell = vec2(mod(aSlot.x, uCols), floor(aSlot.x / uCols));',
+      '  vUV = aUV;',
       '  vShade = aShade;',
       '  vWorld = aPos;',
       '  vFlags = aFlags;',
@@ -232,11 +236,15 @@
       'uniform float uFogDens;',
       'uniform float uAmb;',
       'varying vec2 vUV;',
+      'varying vec2 vCell;',
       'varying vec2 vShade;',
       'varying vec3 vWorld;',
       'varying float vFlags;',
       'void main() {',
-      '  vec3 alb = texture2D(uAlbedo, vUV).rgb;',
+      '  /* döşeme: hücre içinde fract (atlas taşmasını önler), kenarda 1 texel pay */',
+      '  vec2 tuv = clamp(fract(vUV), 0.003, 0.997);',
+      '  vec2 uv = (vCell + tuv) * uCell;',
+      '  vec3 alb = texture2D(uAlbedo, uv).rgb;',
       '  if (vFlags > 0.5) {',                 /* uçurum: doku yok, koyu boşluk */
       '    vec3 p = vWorld - uCamPos;',
       '    float dp = length(p);',
@@ -245,8 +253,8 @@
       '    gl_FragColor = vec4(col, 1.0);',
       '    return;',
       '  }',
-      '  vec3 nrmT = texture2D(uNormal, vUV).rgb * 2.0 - 1.0;',
-      '  float spec = texture2D(uSpec, vUV).r;',
+      '  vec3 nrmT = texture2D(uNormal, uv).rgb * 2.0 - 1.0;',
+      '  float spec = texture2D(uSpec, uv).r;',
       '  vec3 albedo = alb * vShade.x * vShade.y;',
       '  vec3 toCam = uCamPos - vWorld;',
       '  float dist = length(toCam);',
@@ -448,8 +456,9 @@
       'vec3 samp(vec2 uv) {',
       '  if (uSS <= 1.001) return texture2D(uTex, uv).rgb;',
       '  vec2 t = 0.35 / uRes;',
-      '  return (texture2D(uTex, uv + vec2(-t.x, -t.y)).rgb + texture2D(uTex, uv + vec2(t.x, -t.y)).rgb',
-      '        + texture2D(uTex, uv + vec2(-t.x, t.y)).rgb + texture2D(uTex, uv + vec2(t.x, t.y)).rgb) * 0.25;',
+      '  vec3 c0 = texture2D(uTex, uv + vec2(-t.x, -t.y)).rgb + texture2D(uTex, uv + vec2(t.x, -t.y)).rgb;',
+      '  vec3 c1 = texture2D(uTex, uv + vec2(-t.x, t.y)).rgb + texture2D(uTex, uv + vec2(t.x, t.y)).rgb;',
+      '  return (c0 + c1) * 0.25;',
       '}',
       'vec3 aces(vec3 x) {',
       '  return clamp((x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14), 0.0, 1.0);',
@@ -731,7 +740,7 @@
   GL._updateChunks = function (px, py, radius) {
     const w = this.worldRef;
     if (!w) return;
-    const R = radius || 3;                       // chunk yarıçapı (32 karo * R)
+    const R = radius || 2;                       // chunk yarıçapı (32 karo * R ≥ sis menzili)
     const ccx = Math.floor(px / CHUNK), ccy = Math.floor(py / CHUNK);
     const keep = {};
     const pending = [];
@@ -926,7 +935,7 @@
           if (ch.stamp !== this.worldStamp) continue;      /* henüz kurulmadı */
           const mx = ch.cx * CHUNK + CHUNK / 2, my = ch.cy * CHUNK + CHUNK / 2;
           const ddx = mx - v.px, ddy = my - v.py;
-          if (ddx * ddx + ddy * ddy > 78 * 78) continue;    /* sisin ötesi */
+          if (ddx * ddx + ddy * ddy > 56 * 56) continue;    /* sisin ötesi */
           const dl = Math.sqrt(ddx * ddx + ddy * ddy) || 1;
           if ((ddx * camF[0] + ddy * camF[1]) / dl < -0.55 && dl > 40) continue;
           gl.bindBuffer(gl.ARRAY_BUFFER, ch.vbo);
@@ -995,20 +1004,24 @@
       gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, null);
       gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, null);
 
-      /* ---- kendi kendini sınama (ilk kare): bozuk GPU çıktısını yakala ---- */
-      if (this.selfCheck !== false && !this._checked) {
-        this._checked = true;
-        const err = gl.getError();
-        let black = false;
+      /* ---- kendi kendini sınama: renkli bir sonda çizip geri oku ----
+         Bozuk sürücülerde kare siyah kalır; bunu ilk karede yakalayıp
+         CPU hattına düşeriz (oyuncu asla siyah ekran görmez). */
+      if (!this._probed) {
+        this._probed = true;
         try {
-          const px = new Uint8Array(4 * 16);
-          gl.readPixels(Math.floor(SW * 0.35), Math.floor(SH * 0.35), 4, 4, gl.RGBA, gl.UNSIGNED_BYTE, px);
-          let maxV = 0;
-          for (let i = 0; i < px.length; i++) if (px[i] > maxV) maxV = px[i];
-          black = maxV < 3;
-        } catch (e) { black = false; }
-        if (err !== gl.NO_ERROR || black) {
-          throw new Error('GPU çıktısı doğrulanamadı (hata ' + err + (black ? ', siyah kare' : '') + ')');
+          const want = [64, 128, 192];
+          gl.bindFramebuffer(gl.FRAMEBUFFER, this.scene.fb);
+          gl.viewport(0, 0, 4, 4);
+          gl.clearColor(want[0] / 255, want[1] / 255, want[2] / 255, 1);
+          gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+          const px = new Uint8Array(4);
+          gl.readPixels(1, 1, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
+          const d = Math.abs(px[0] - want[0]) + Math.abs(px[1] - want[1]) + Math.abs(px[2] - want[2]);
+          gl.clearColor(0, 0, 0, 1);
+          if (gl.getError() !== gl.NO_ERROR || d > 24) throw new Error('GPU geri okuma tutarsız (sapma ' + d + ')');
+        } catch (e) {
+          if (e && e.message && /geri okuma/.test(e.message)) { gl.clearColor(0, 0, 0, 1); throw e; }
         }
       }
       return true;

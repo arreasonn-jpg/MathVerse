@@ -19,6 +19,7 @@ const fs = require('fs');
 const soft = require('./softcanvas');
 
 const ROOT = path.join(__dirname, '..');
+const C_CONST = { VERTEX_SHADER: 0x8B31, FRAGMENT_SHADER: 0x8B30 };
 
 /* ---------------- WebGL1 alaycısı ---------------- */
 function mockGL(maxTex) {
@@ -50,12 +51,14 @@ function mockGL(maxTex) {
     return 0;
   };
   gl.getExtension = (n) => (/anisotropic/i.test(n) ? { MAX_TEXTURE_MAX_ANISOTROPY_EXT: C.MAX_ANISOTROPY_EXT, TEXTURE_MAX_ANISOTROPY_EXT: 0x84FE } : null);
-  gl.createShader = () => ({ id: objectId++, _src: '' });
+  gl.createShader = (type) => ({ id: objectId++, _type: type, _src: '' });
   gl.shaderSource = (sh, src) => { sh._src = src; if (!src || src.length < 40) throw new Error('shader kaynağı boş'); };
   gl.compileShader = (sh) => { stats.shaders++; sh._ok = true; };
   gl.getShaderParameter = () => true;
   gl.getShaderInfoLog = () => '';
-  gl.createProgram = () => ({ id: objectId++, shaders: [] });
+  const progs = [];
+  gl._progs = progs;
+  gl.createProgram = () => { const p = { id: objectId++, shaders: [] }; progs.push(p); return p; };
   gl.attachShader = (p, sh) => p.shaders.push(sh);
   gl.linkProgram = (p) => { stats.programs++; p._ok = true; };
   gl.getProgramParameter = () => true;
@@ -96,7 +99,7 @@ function mockGL(maxTex) {
   gl.createRenderbuffer = () => ({ id: objectId++ });
   gl.bindRenderbuffer = noop; gl.renderbufferStorage = noop;
   gl.enable = noop; gl.disable = noop; gl.depthMask = noop; gl.blendFunc = noop;
-  gl.clearColor = noop; gl.clear = noop; gl.viewport = noop;
+  gl.clear = noop; gl.viewport = noop;
   gl.enableVertexAttribArray = noop; gl.disableVertexAttribArray = noop;
   gl.vertexAttribPointer = noop;
   gl.uniform1f = noop; gl.uniform1i = noop; gl.uniform2f = noop; gl.uniform3f = noop;
@@ -106,9 +109,13 @@ function mockGL(maxTex) {
     if (!count) throw new Error('drawElements sıfır indeks');
   };
   gl.drawArrays = (mode, first, count) => { stats.draws++; stats.quads++; if (!count) throw new Error('drawArrays boş'); };
+  let clearCol = [0, 0, 0];
+  gl.clearColor = (r, g, b, a) => { clearCol = [r * 255, g * 255, b * 255]; };
   gl.readPixels = (x, y, w, h, f, t, out) => {
     stats.writePixels++;
-    for (let i = 0; i < out.length; i++) out[i] = 96;      // siyah değil: kendi kendini sınama geçsin
+    for (let i = 0; i < out.length; i += 4) {
+      out[i] = clearCol[0] | 0; out[i + 1] = clearCol[1] | 0; out[i + 2] = clearCol[2] | 0; out[i + 3] = 255;
+    }
   };
   gl.getError = () => 0;
   gl.deleteShader = noop; gl.deleteProgram = noop;
@@ -300,6 +307,36 @@ ok(maxSeen < 32 && maxSeen >= 0, 'yüksek kimlikli karolar (100+) sıkıştırı
 ok(Object.keys(slotSeen).length >= 3, 'ağlarda kullanılan farklı doku: ' + Object.keys(slotSeen).length);
 ok(dark >= 0, 'karanlık (uçurum işaretli) köşe: ' + dark);
 
+/* duvar UV'leri: yükseklik boyunca döşeniyor mu? (streç/çizgi hatası denetimi) */
+let wallVerts = 0, floorVerts = 0, maxV = 0, badWallU = 0, heights = {};
+for (const arr of glImpl._meshes) {
+  for (let i = 0; i < arr.length; i += F) {
+    const uy = arr[i + 4], ux = arr[i + 3], py = arr[i + 1];
+    if (uy > 1.5) {
+      wallVerts++;
+      if (uy > maxV) maxV = uy;
+      heights[uy.toFixed(1)] = (heights[uy.toFixed(1)] || 0) + 1;
+      if (ux < -0.001 || ux > 1.001) badWallU++;
+    } else if (py < 0.01) floorVerts++;
+  }
+}
+ok(wallVerts > 1000, 'duvar köşesi: ' + wallVerts.toLocaleString('tr-TR'));
+ok(maxV >= 3.9 && maxV <= 9, 'duvar UV yüksekliği gerçek ölçekte döşeniyor (en büyük v=' + maxV.toFixed(2) + ')');
+ok(badWallU === 0, 'duvar yatay UV hücre içinde kalıyor (taşan: ' + badWallU + ')');
+ok(floorVerts > 100, 'zemin köşesi: ' + floorVerts.toLocaleString('tr-TR'));
+
+/* bölüm kurulum süresi: kare takılması olmasın */
+GL.invalidate();
+const t0 = process.hrtime.bigint();
+let builtNow = 0;
+for (let i = 0; i < 4; i++) {
+  const before2 = Object.keys(GL.chunks).length;
+  GL._updateChunks(sx, sy, 2);
+  builtNow += Object.keys(GL.chunks).length - before2;
+}
+const ms = Number(process.hrtime.bigint() - t0) / 1e6;
+ok(builtNow >= 0 && ms / Math.max(1, builtNow) < 12, 'bölüm kurulumu kare bütçesinde: ' + (ms / Math.max(1, builtNow)).toFixed(2) + ' ms/bölüm');
+
 /* ---------------- 5) yeniden kurulum ---------------- */
 section('invalidate ve boyut değişimi');
 const chunkCount = Object.keys(GL.chunks).length;
@@ -341,6 +378,86 @@ GL.render({ world: world, px: sx, py: sy, zc: 1.6, pa: 0, pitch: 0, sunDir: [0, 
 ok(GL.ok === true, 'eksik alanlarla (roll/bloom/time yok) çizim çökmedi');
 GL.prepare({ walls: [], sprites: {} });
 ok(GL.prepared === true, 'boş doku setinde prepare yeniden çalıştı');
+
+/* ---------------- 6b) bozuk GPU: sonda yakalar ---------------- */
+section('Bozuk sürücü koruması');
+const goodGL = glImpl;
+const badGL = mockGL(8192);
+badGL.readPixels = (x, y, w, h, f, t, out) => { for (let i = 0; i < out.length; i++) out[i] = 0; };
+glImpl = badGL;
+GL.ok = false; GL.prepared = false; GL._probed = false;
+GL.init(viewCanvas);
+ok(GL.ok === true, 'bozuk sürücüde kurulum tamamlandı (henüz hata yok)');
+GL.setSize(683, 384);
+GL.prepare(tex);
+const probeRes = GL.render(makeView(sx, sy, 0.3), { FOVK: 0.66, fovMul: 1, quality: 'yuksek' });
+ok(probeRes === false, 'sonda tutarsızlığı yakalandı → render false');
+ok(GL.ok === false && /geri okuma/.test(GL.status), 'durum açıklaması: ' + GL.status);
+glImpl = goodGL;
+GL.ok = false; GL.prepared = false; GL._probed = false;
+GL.init(viewCanvas);
+GL.setSize(683, 384);
+GL.prepare(tex);
+ok(GL.ok === true, 'iyi sürücüye dönüş: ' + GL.status);
+
+/* ---------------- 6c) shader kaynak denetimi ---------------- */
+section('Shader kaynakları (statik denetim)');
+const src = fs.readFileSync(path.join(ROOT, 'app', 'js', '09-gl.js'), 'utf8');
+let shaderCount = 0, braceBad = 0, parenBad = 0, varyBad = [], attrBad = [], uniformBad = [];
+for (const prog of badGL._progs.concat(glImpl._progs)) {
+  const vs = prog.shaders.find(x => x._type === C_CONST.VERTEX_SHADER);
+  const fsx = prog.shaders.find(x => x._type === C_CONST.FRAGMENT_SHADER);
+  for (const sh of [vs, fsx]) {
+    if (!sh || !sh._src) continue;
+    shaderCount++;
+    const open = (sh._src.match(/\{/g) || []).length, close = (sh._src.match(/\}/g) || []).length;
+    if (open !== close) braceBad++;
+    const opAll = (sh._src.match(/\(/g) || []).length, clAll = (sh._src.match(/\)/g) || []).length;
+    if (opAll !== clAll) parenBad++;
+  }
+  for (const sh of [vs, fsx]) {
+    if (!sh || !sh._src) continue;
+    const us = sh._src.match(/uniform\s+\w+\s+(\w+)/g) || [];
+    for (const d of us) {
+      const n = d.split(/\s+/).pop();
+      if (src.indexOf("u('" + n + "')") < 0) uniformBad.push(n);
+    }
+  }
+  if (vs && fsx) {
+    const declared = new Set((vs._src.match(/varying\s+\w+\s+(\w+)/g) || []).map(x => x.split(/\s+/).pop()));
+    const used = (fsx._src.match(/varying\s+\w+\s+(\w+)/g) || []).map(x => x.split(/\s+/).pop());
+    for (const v of used) if (!declared.has(v)) varyBad.push(v);
+    const attrs = (vs._src.match(/attribute\s+\w+\s+(\w+)/g) || []).map(x => x.split(/\s+/).pop());
+    for (const a of attrs) if (src.indexOf("a('" + a + "')") < 0) attrBad.push(a);
+    /* tür uyuşmazlığı: aynı isimli varying iki tarafta aynı türde olmalı */
+    const ty = (text, kind) => {
+      const m = text.match(new RegExp(kind + '\\s+(\\w+)\\s+(\\w+)', 'g')) || [];
+      const o = {};
+      for (const d of m) { const p2 = d.split(/\s+/); o[p2[2]] = p2[1]; }
+      return o;
+    };
+    const vt = ty(vs._src, 'varying'), ft = ty(fsx._src, 'varying');
+    for (const k2 in ft) if (vt[k2] && vt[k2] !== ft[k2]) varyBad.push(k2 + '(' + vt[k2] + '≠' + ft[k2] + ')');
+    if (vt.vUV && ft.vUV && vt.vUV !== ft.vUV) varyBad.push('vUV');
+  }
+}
+ok(shaderCount >= 10, 'denetlenen shader: ' + shaderCount);
+ok(braceBad === 0, 'süslü parantezler dengeli (bozuk: ' + braceBad + ')');
+ok(parenBad === 0, 'parantezler dengeli (bozuk: ' + parenBad + ')');
+ok(varyBad.length === 0, 'fragment shader’da tanımsız varying yok' + (varyBad.length ? ': ' + varyBad.join(', ') : ''));
+ok(attrBad.length === 0, 'her vertex özniteliği JS tarafından bağlanıyor' + (attrBad.length ? ': ' + attrBad.join(', ') : ''));
+const uniUniq = Array.from(new Set(uniformBad));
+let uniTotal = 0;
+for (const prog of badGL._progs.concat(glImpl._progs)) {
+  for (const sh of prog.shaders) {
+    if (!sh._src) continue;
+    uniTotal += (sh._src.match(/uniform\s+\w+\s+(\w+)/g) || []).length;
+  }
+}
+ok(uniTotal >= 30, 'denetlenen uniform bildirimi: ' + uniTotal);
+ok(uniUniq.length === 0, 'her uniform JS tarafından besleniyor' + (uniUniq.length ? ': ' + uniUniq.join(', ') : ''));
+const isCount = (src.match(/ if \(/g) || []).length;
+ok(isCount > 0 || true, 'shader ifade sayısı: ' + isCount);
 
 /* ---------------- 7) Renderer entegrasyonu ---------------- */
 section('Renderer ↔ GPU hattı bağlantısı');

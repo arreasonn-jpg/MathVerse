@@ -19,7 +19,7 @@
     fullscreen: false,
     hudScale: 1.0,
     sprintMode: 'basili', crouchMode: 'basili',
-    mouseCurve: 'dengeli', mouseSmoothing: 0.12, bob: 1.0,
+    mouseCurve: 'dengeli', mouseSmoothing: 0.05, bob: 1.0,
     sensX: 1.0, sensY: 1.0, adsSens: 0.62, padMode: 'cift', gpuMode: 'auto',
     assist: true, vibration: true,
     padDeadzone: 0.18, padCurve: 1.7, padSens: 1.0,

@@ -67,7 +67,7 @@ const DEFAULTS = {
   sprintMode: 'basili',        // basili | kapa
   crouchMode: 'basili',        // basili | kapa
   mouseCurve: 'dengeli',       // dengeli | hassas | yumusak
-  mouseSmoothing: 0.12,
+  mouseSmoothing: 0.05,
   sensX: 1.0,                  // yatay hassasiyet çarpanı
   sensY: 1.0,                  // dikey hassasiyet çarpanı
   adsSens: 0.62,               // nişan (ADS) hassasiyet oranı
