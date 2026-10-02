@@ -1,757 +1,645 @@
 /* ============================================================
-   09-gl.js — GPU (WebGL) render hattı.
+   09-gl.js — GPU görüntü motoru (Three.js / WebGL)
 
-   CPU raycast hattının "piksel" görünümünü bırakmak için gerçek bir
-   GPU rasterizer: bölüm bölüm (chunk) dünya geometrisi, mipmap'li
-   doku atlasları, normal + parlama haritaları, güneş/fener ışığı,
-   gökyüzü shader'ı, billboard sprite'lar ve sinematik post-process
-   (bloom, ACES ton eşleme, renk sapması, vinyet, film greni).
+   v1.1'e kadar dünya CPU'da yazılım raycast ile, v1.2'de elle yazılmış
+   WebGL shader'larıyla çiziliyordu. v1.3'te çizim, olgun bir oyun motoruna
+   (Three.js r147) devredildi: PBR (fizik tabanlı) materyaller, gerçek zamanlı
+   güneş gölgeleri, HDR + ACES ton eşleme, çok örneklemeli kenar yumuşatma
+   (MSAA), bloom ve sinema sonrası katman.
 
-   WebGL yoksa ya da bir shader derlenmezse sessizce CPU hattına döner:
-   MV.GL.ok = false ve MV.GL.status sebebi taşır.
+   Sözleşme (30-render.js bunu kullanır):
+     ok · status · canvas · scale · ss · prepared · worldRef · worldStamp
+     init(canvas2d) · prepare(tex) · setSize(W,H) · invalidate()
+     render(view, R) → bool   (false dönerse CPU hattı devralır)
+
+   Motor hiçbir koşulda oyunu düşürmez: kurulum ya da çizim hatasında
+   ok=false olur, tuval gizlenir ve CPU hattı devam eder.
    ============================================================ */
 (function (MV) {
   'use strict';
-  const { clamp } = MV;
 
-  const GL = {
-    ok: false,
-    status: 'başlatılmadı',
-    gl: null,
-    canvas: null
-  };
+  const GL = {};
 
-  /* ---------------- küçük yardımcılar ---------------- */
-  function mat4() { return new Float32Array(16); }
-  function perspective(out, tanHalfX, aspect, near, far) {
-    const f = 1 / tanHalfX;                 // yatay yarım açının tanjantı
-    out.fill(0);
-    out[0] = f;
-    out[5] = f * aspect;                    // dikey ölçek (aspect = W/H)
-    out[10] = (far + near) / (near - far);
-    out[11] = -1;
-    out[14] = (2 * far * near) / (near - far);
-    return out;
-  }
-  function mul(out, a, b) {                 // out = a * b (sütun-öncelikli)
-    for (let i = 0; i < 4; i++) {
-      for (let j = 0; j < 4; j++) {
-        out[i * 4 + j] = a[j] * b[i * 4] + a[4 + j] * b[i * 4 + 1] + a[8 + j] * b[i * 4 + 2] + a[12 + j] * b[i * 4 + 3];
-      }
-    }
-    return out;
-  }
-  function viewMatrix(out, px, py, pz, yaw, pitch, roll) {
-    const cy = Math.cos(yaw), sy = Math.sin(yaw);
-    const cp = Math.cos(pitch), sp = Math.sin(pitch);
-    roll = roll || 0;
-    /* ileri (yukarı bakış pozitif), sağ ve yukarı vektörleri */
-    const fx = cy * cp, fy = sp, fz = sy * cp;
-    let rx = -sy, ry = 0, rz = cy;
-    /* up = right × forward */
-    let ux = ry * fz - rz * fy, uy = rz * fx - rx * fz, uz = rx * fy - ry * fx;
-    /* yana yatma (lean/roll): sağ ve yukarı vektörlerini ileri eksende döndür */
-    if (roll) {
-      const cr = Math.cos(roll), sr = Math.sin(roll);
-      const rx2 = rx * cr + ux * sr, ry2 = ry * cr + uy * sr, rz2 = rz * cr + uz * sr;
-      const ux2 = ux * cr - rx * sr, uy2 = uy * cr - ry * sr, uz2 = uz * cr - rz * sr;
-      rx = rx2; ry = ry2; rz = rz2; ux = ux2; uy = uy2; uz = uz2;
-    }
-    out[0] = rx; out[1] = ux; out[2] = -fx; out[3] = 0;
-    out[4] = ry; out[5] = uy; out[6] = -fy; out[7] = 0;
-    out[8] = rz; out[9] = uz; out[10] = -fz; out[11] = 0;
-    out[12] = -(rx * px + ry * py + rz * pz);
-    out[13] = -(ux * px + uy * py + uz * pz);
-    out[14] = fx * px + fy * py + fz * pz;
-    out[15] = 1;
-    return out;
+  /* ---------- genel durum ---------- */
+  GL.ok = false;
+  GL.prepared = false;
+  GL.status = 'başlatılmadı';
+  GL.canvas = null;
+  GL.renderer = null;
+  GL.scene = null;
+  GL.camera = null;
+  GL.composer = null;
+  GL.worldRef = null;
+  GL.worldStamp = 0;
+  GL.scale = 1;                       // iç çözünürlük ölçeği (kalite)
+  GL.ss = 1;                          // kenar yumuşatma örneklemesi (bilgi amaçlı)
+  GL.chunks = {};
+  GL.chunkList = [];
+  GL.mats = {};                        // doku kimliği → THREE.MeshStandardMaterial
+  GL.spriteMats = {};                  // "ad:kare" → THREE.SpriteMaterial
+  GL.dolls = {};                       // "ad:kare" → ölçek bilgisi
+  GL.entities = [];
+  GL.blobs = [];
+
+  const CHUNK = 24;                    // karo cinsinden bölüm boyutu
+  const CHUNK_R = 2;                   // oyuncu çevresinde 5×5 bölüm
+  const CEIL_Y = 4;                    // kapalı alan tavan yüksekliği (duvarlar 4 birim)
+  const FOG_MIN = 0.004;
+
+  function T3() {
+    return MV.THREE || (typeof window !== 'undefined' ? window.THREE : null);
   }
 
-  /* ---------------- shader derleme ---------------- */
-  GL._compile = function (vertexSrc, fragmentSrc, name) {
-    const gl = this.gl;
-    const mk = (type, src) => {
-      const sh = gl.createShader(type);
-      gl.shaderSource(sh, src);
-      gl.compileShader(sh);
-      if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) {
-        const log = gl.getShaderInfoLog(sh) || '';
-        throw new Error((name || 'shader') + ' derlenemedi: ' + log.slice(0, 220));
-      }
-      return sh;
-    };
-    const prog = gl.createProgram();
-    gl.attachShader(prog, mk(gl.VERTEX_SHADER, vertexSrc));
-    gl.attachShader(prog, mk(gl.FRAGMENT_SHADER, fragmentSrc));
-    gl.linkProgram(prog);
-    if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) {
-      throw new Error((name || 'program') + ' bağlanamadı: ' + String(gl.getProgramInfoLog(prog)).slice(0, 220));
-    }
-    const ucache = {}, acache = {};
-    const loc = (n) => (n in ucache ? ucache[n] : (ucache[n] = gl.getUniformLocation(prog, n)));
-    const attr = (n) => (n in acache ? acache[n] : (acache[n] = gl.getAttribLocation(prog, n)));
-    return { prog: prog, u: loc, a: attr };
-  };
-
-  GL._texture = function (source, opts) {
-    const gl = this.gl;
-    const t = gl.createTexture();
-    gl.bindTexture(gl.TEXTURE_2D, t);
-    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, source);
-    const pot = opts && opts.pot;
-    if (pot) {
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-      gl.generateMipmap(gl.TEXTURE_2D);
-      const aniso = gl.getExtension('EXT_texture_filter_anisotropic')
-        || gl.getExtension('WEBKIT_EXT_texture_filter_anisotropic');
-      if (aniso) {
-        const max = gl.getParameter(aniso.MAX_TEXTURE_MAX_ANISOTROPY_EXT);
-        gl.texParameterf(gl.TEXTURE_2D, aniso.TEXTURE_MAX_ANISOTROPY_EXT, Math.min(8, max));
-      }
-    } else {
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-    }
-    return t;
-  };
+  function log(msg) { if (MV.logMsg) MV.logMsg('[GL] ' + msg); }
 
   /* ============================================================
-     BAŞLATMA
+     MOTOR KURULUMU
      ============================================================ */
   GL.init = function (canvas2d) {
     if (this.ok) return this;
-    this.prepared = false; this._probed = false;
+    this.prepared = false;
+    this._checked = 0;
     try {
-      if (typeof document === 'undefined' || !canvas2d || !canvas2d.parentNode) throw new Error('canvas yok');
+      const T = T3();
+      if (!T || !T.WebGLRenderer) throw new Error('Three.js yüklenemedi');
+      if (typeof document === 'undefined' || !canvas2d || !canvas2d.parentNode) throw new Error('tuval yok');
+
+      /* ---- GPU tuvali: #view'in arkasına yerleşir ---- */
       const cv = document.createElement('canvas');
       cv.id = 'glview';
       cv.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;display:block;background:#000';
       canvas2d.parentNode.insertBefore(cv, canvas2d);
-      const opts = { alpha: false, antialias: true, depth: true, stencil: false, powerPreference: 'high-performance', preserveDrawingBuffer: false };
-      const gl = cv.getContext('webgl', opts) || cv.getContext('experimental-webgl', opts);
-      /* yetenek denetimi: sahte (stub) bağlamlarda burada dururuz */
-      if (!gl || typeof gl.createShader !== 'function' || typeof gl.getParameter !== 'function'
-        || typeof gl.createBuffer !== 'function' || typeof gl.texImage2D !== 'function') {
-        throw new Error('WebGL bağlamı yok');
-      }
-      const ver = String(gl.getParameter(gl.VERSION) || '');
-      if (!ver) throw new Error('WebGL sürümü okunamadı');
-      /* yazılım GPU (SwiftShader/llvmpipe) tespiti: o durumda CPU hattı daha iyi */
-      try {
-        const dbg = gl.getExtension('WEBGL_debug_renderer_info');
-        if (dbg) {
-          const rend = String(gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) || '');
-          if (/swiftshader|llvmpipe|softpipe|software|basic render/i.test(rend)) {
-            throw new Error('yazılım GPU: ' + rend.slice(0, 40));
-          }
-          this.rendererName = rend;
-        }
-      } catch (e) {
-        if (e && /yazılım GPU/.test(e.message || '')) throw e;
+
+      const renderer = new T.WebGLRenderer({
+        canvas: cv,
+        antialias: false,                   // MSAA'yı besteleyicide kullanıyoruz
+        alpha: false,
+        powerPreference: 'high-performance',
+        stencil: false
+      });
+      if (!renderer || !renderer.getContext()) throw new Error('WebGL bağlamı açılamadı');
+
+      const gl = renderer.getContext();
+      const dbg = gl.getExtension('WEBGL_debug_renderer_info');
+      const gpuName = dbg ? String(gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) || '') : '';
+      if (/swiftshader|llvmpipe|softpipe|software|basic render/i.test(gpuName)) {
+        throw new Error('yazılım GPU: ' + gpuName.slice(0, 40));
       }
 
-      /* 32 bit indeks yalnızca uzantı varsa */
-      this.uintIndex = !!gl.getExtension('OES_element_index_uint');
-      this.canvas = cv; this.gl = gl;
-      this.W = 1; this.H = 1;
-      this.scale = 1;
-      this.chunks = {};
-      this.chunkList = [];
-      this.worldRef = null;
-      this.worldStamp = -1;
+      renderer.setPixelRatio(1);            // dahili çözünürlüğü biz belirliyoruz
+      renderer.outputEncoding = T.sRGBEncoding;
+      /* Ton eşleme ve sRGB çıkışı son katmanda elle yapılır (ShaderPass
+         içindeki özel shader'lara three bunları otomatik eklemez). */
+      renderer.toneMapping = T.NoToneMapping;
+      renderer.shadowMap.enabled = true;
+      renderer.shadowMap.type = T.PCFSoftShadowMap;
+      renderer.autoClear = true;
 
-      /* ---- shader'lar ---- */
-      this._buildShaders();
-      /* ---- post hedefleri ---- */
-      this._resizeTargets(64, 64);
+      this.T = T;
+      this.renderer = renderer;
+      this.gl = gl;
+      this.canvas = cv;
+      this.gpuName = gpuName;
+      this.isWebGL2 = !!(gl.texStorage2D || (T.WebGLMultisampleRenderTarget && renderer.capabilities && renderer.capabilities.isWebGL2));
+
+      /* ---- sahne ve kamera ---- */
+      const scene = new T.Scene();
+      scene.matrixWorldAutoUpdate = true;
+      scene.fog = new T.FogExp2(0x0a0d12, 0.03);
+      const camera = new T.PerspectiveCamera(70, 1.6, 0.04, 420);
+      camera.rotation.order = 'YXZ';
+      scene.add(camera);
+      this.scene = scene;
+      this.camera = camera;
+
+      /* ---- ışıklar ---- */
+      const hemi = new T.HemisphereLight(0x8fb4ff, 0x2a2620, 0.55);
+      scene.add(hemi);
+      this.hemi = hemi;
+
+      const sun = new T.DirectionalLight(0xffe9c4, 1.6);
+      sun.castShadow = true;
+      sun.shadow.mapSize.set(2048, 2048);
+      sun.shadow.camera.left = -26;
+      sun.shadow.camera.right = 26;
+      sun.shadow.camera.top = 26;
+      sun.shadow.camera.bottom = -26;
+      sun.shadow.camera.near = 0.5;
+      sun.shadow.camera.far = 150;
+      sun.shadow.bias = -0.0006;
+      sun.shadow.normalBias = 0.035;
+      scene.add(sun);
+      scene.add(sun.target);
+      this.sun = sun;
+
+      const torch = new T.SpotLight(0xffe0b0, 0, 30, 0.62, 0.75, 1.15);
+      torch.castShadow = false;
+      scene.add(torch);
+      scene.add(torch.target);
+      this.torch = torch;
+
+      const fill = new T.PointLight(0xffd9a8, 0, 14, 1.4);
+      scene.add(fill);
+      this.fill = fill;
+
+      /* ---- gökyüzü kubbesi ---- */
+      this._buildSky();
+
+      /* ---- konum sonrası katman ---- */
+      this._buildComposer();
+
       this.ok = true;
-      this.status = 'GPU etkin (' + (this.rendererName ? this.rendererName.slice(0, 42) : ver) + ')';
-      if (MV.logMsg) MV.logMsg('[GL] ' + this.status);
+      this.status = 'GPU etkin (Three.js r' + T.REVISION + (gpuName ? ' · ' + gpuName.slice(0, 34) : '') + ')';
+      log(this.status);
       return this;
     } catch (e) {
       this.ok = false;
       this.status = 'CPU (sebep: ' + (e && e.message ? e.message : e) + ')';
       try { if (this.canvas && this.canvas.parentNode) this.canvas.parentNode.removeChild(this.canvas); } catch (e2) { }
-      this.canvas = null; this.gl = null;
-      if (MV.logMsg) MV.logMsg('[GL] ' + this.status);
+      this.canvas = null;
+      this.renderer = null;
+      this.gl = null;
+      log(this.status);
       return this;
     }
   };
 
   /* ============================================================
-     SHADER'LAR
+     GÖKYÜZÜ
      ============================================================ */
-  GL._buildShaders = function () {
-    const P = MV.TS;                          // doku boyutu (256)
-    const COLS = 8, ROWS = 4;                 // atlas ızgarası
-    this.atlasCols = COLS; this.atlasRows = ROWS; this.atlasSize = P;
-
-    /* ---------- dünya: duvar + zemin + tavan ---------- */
-    const worldVS = [
-      'attribute vec3 aPos;',
-      'attribute vec2 aUV;',
-      'attribute vec2 aSlot;',               // x: atlas slot indeksi
-      'attribute vec2 aShade;',              // x: ışık çarpanı, y: AO
-      'attribute float aFlags;',             // 1 = işlenmemiş karanlık (uçurum)
-      'uniform mat4 uVP;',
-      'uniform vec2 uCell;',                 // 1/COLS, 1/ROWS
-      'uniform float uCols;',                // atlas sütun sayısı
-      'varying vec2 vUV;',
-      'varying vec2 vCell;',
-      'varying vec2 vShade;',
-      'varying vec3 vWorld;',
-      'varying float vFlags;',
-      'void main() {',
-      '  /* atlas hücresi + mutlak döşeme UV: duvar yüksekliği 1 birim = 1 doku boyu;',
-      '     4 birimlik duvarda doku 4 kez tekrarlanır (CPU hattıyla aynı yoğunluk) */',
-      '  vCell = vec2(mod(aSlot.x, uCols), floor(aSlot.x / uCols));',
-      '  vUV = aUV;',
-      '  vShade = aShade;',
-      '  vWorld = aPos;',
-      '  vFlags = aFlags;',
-      '  gl_Position = uVP * vec4(aPos, 1.0);',
-      '}'
-    ].join('\n');
-
-    const worldFS = [
-      '#ifdef GL_FRAGMENT_PRECISION_HIGH',
-      'precision highp float;',
-      '#else',
-      'precision mediump float;',
-      '#endif',
-      'uniform sampler2D uAlbedo;',
-      'uniform sampler2D uNormal;',
-      'uniform sampler2D uSpec;',
-      'uniform vec3 uSunDir;',               // normalize edilmiş
-      'uniform vec3 uSunCol;',
-      'uniform float uSunAmt;',              // güneş katkısı
-      'uniform vec3 uAmbient;',
-      'uniform vec3 uTorchCol;',
-      'uniform float uTorch;',
-      'uniform vec3 uCamPos;',
-      'uniform vec3 uFogCol;',
-      'uniform float uFogDens;',
-      'uniform float uAmb;',
-      'varying vec2 vUV;',
-      'varying vec2 vCell;',
-      'varying vec2 vShade;',
-      'varying vec3 vWorld;',
-      'varying float vFlags;',
-      'void main() {',
-      '  /* döşeme: hücre içinde fract (atlas taşmasını önler), kenarda 1 texel pay */',
-      '  vec2 tuv = clamp(fract(vUV), 0.003, 0.997);',
-      '  vec2 uv = (vCell + tuv) * uCell;',
-      '  vec3 alb = texture2D(uAlbedo, uv).rgb;',
-      '  if (vFlags > 0.5) {',                 /* uçurum: doku yok, koyu boşluk */
-      '    vec3 p = vWorld - uCamPos;',
-      '    float dp = length(p);',
-      '    float f = clamp(dp * uFogDens, 0.0, 1.0);',
-      '    vec3 col = mix(vec3(0.012, 0.014, 0.02) * vShade.y, uFogCol, f);',
-      '    gl_FragColor = vec4(col, 1.0);',
-      '    return;',
-      '  }',
-      '  vec3 nrmT = texture2D(uNormal, uv).rgb * 2.0 - 1.0;',
-      '  float spec = texture2D(uSpec, uv).r;',
-      '  vec3 albedo = alb * vShade.x * vShade.y;',
-      '  vec3 toCam = uCamPos - vWorld;',
-      '  float dist = length(toCam);',
-      '  vec3 V = toCam / max(dist, 0.0001);',
-      '  /* normal: doku yüzeyi düz kabul edilir (duvar/zemin yönelimi eksenel) */',
-      '  vec3 N = normalize(vec3(nrmT.x, nrmT.z, nrmT.y));',
-      '  /* dikey yüzeylerde normal haritası XZ düzleminde kalır: yaklaşık yönelimi geri kazan */',
-      '  if (abs(N.y) > 0.7) N = normalize(vec3(nrmT.x, 0.75, nrmT.y));',
-      '  float lam = max(0.0, dot(N, uSunDir));',
-      '  vec3 col = albedo * (uAmbient + uSunCol * lam * uSunAmt);',
-      '  if (uTorch > 0.001) {',
-      '    vec3 L = -V;',
-      '    float lamT = max(0.0, dot(N, L));',
-      '    float att = 1.0 / (1.0 + dist * dist * 0.055);',
-      '    vec3 H = normalize(L + V);',
-      '    float sp = pow(max(0.0, dot(N, H)), 28.0) * spec;',
-      '    col += uTorchCol * uTorch * att * (lamT * 0.85 + sp * 0.9);',
-      '  }',
-      '  float f = clamp(dist * uFogDens, 0.0, 1.0);',
-      '  col = mix(col, uFogCol, f);',
-      '  gl_FragColor = vec4(col, 1.0);',
-      '}'
-    ].join('\n');
-
-    /* ---------- gökyüzü (tam ekran) ---------- */
-    const skyVS = [
-      'attribute vec2 aPos;',
-      'uniform mat4 uInvVP;',
-      'uniform vec3 uCamPos;',
-      'varying vec3 vRay;',
-      'void main() {',
-      '  vec4 far = uInvVP * vec4(aPos, 1.0, 1.0);',
-      '  vec4 near = uInvVP * vec4(aPos, -1.0, 1.0);',
-      '  vRay = normalize(far.xyz / far.w - near.xyz / near.w);',
-      '  gl_Position = vec4(aPos, 0.999, 1.0);',
-      '}'
-    ].join('\n');
-    const skyFS = [
-      '#ifdef GL_FRAGMENT_PRECISION_HIGH',
-      'precision highp float;',
-      '#else',
-      'precision mediump float;',
-      '#endif',
-      'uniform vec3 uSkyTop;',
-      'uniform vec3 uSkyHorizon;',
-      'uniform vec3 uSunDir;',
-      'uniform vec3 uSunCol;',
-      'uniform float uStars;',
-      'uniform float uClouds;',
-      'uniform float uTime;',
-      'uniform float uFogDens;',
-      'varying vec3 vRay;',
-      'float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }',
-      'float noise(vec2 p) {',
-      '  vec2 i = floor(p); vec2 f = fract(p);',
-      '  f = f * f * (3.0 - 2.0 * f);',
-      '  float a = hash(i), b = hash(i + vec2(1.0, 0.0)), c = hash(i + vec2(0.0, 1.0)), d = hash(i + vec2(1.0, 1.0));',
-      '  return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);',
-      '}',
-      'float fbm(vec2 p) {',
-      '  float s = 0.0, a = 0.5;',
-      '  for (int i = 0; i < 5; i++) { s += a * noise(p); p *= 2.03; a *= 0.5; }',
-      '  return s;',
-      '}',
-      'void main() {',
-      '  vec3 d = normalize(vRay);',
-      '  float h = clamp(d.y * 0.5 + 0.5, 0.0, 1.0);',
-      '  vec3 col = mix(uSkyHorizon, uSkyTop, pow(clamp(d.y, 0.0, 1.0), 0.62));',
-      '  /* yıldızlar */',
-      '  if (uStars > 0.01 && d.y > -0.02) {',
-      '    vec2 sp = d.xz / max(0.08, d.y + 0.25) * 9.0;',
-      '    float s = hash(floor(sp * 26.0));',
-      '    float tw = 0.55 + 0.45 * sin(uTime * 2.2 + s * 40.0);',
-      '    float star = smoothstep(0.9975, 1.0, s) * tw;',
-      '    col += vec3(0.85, 0.9, 1.0) * star * uStars * clamp(d.y * 3.0, 0.0, 1.0);',
-      '  }',
-      '  /* bulutlar */',
-      '  if (uClouds > 0.01 && d.y > 0.0) {',
-      '    vec2 cp = d.xz / max(0.12, d.y + 0.12) * 0.62 + vec2(uTime * 0.004, uTime * 0.0022);',
-      '    float c = fbm(cp * 1.35);',
-      '    c = smoothstep(0.52, 0.86, c) * uClouds * clamp(d.y * 4.0, 0.0, 1.0);',
-      '    vec3 lit = mix(vec3(0.42, 0.44, 0.5), vec3(0.95, 0.94, 0.92), smoothstep(0.0, 1.0, d.y));',
-      '    col = mix(col, lit, c);',
-      '  }',
-      '  /* güneş/ay diski ve halesi */',
-      '  float sd = max(0.0, dot(d, uSunDir));',
-      '  col += uSunCol * pow(sd, 900.0) * 1.6;',
-      '  col += uSunCol * pow(sd, 26.0) * 0.30;',
-      '  col += uSunCol * pow(sd, 6.0) * 0.10;',
-      '  /* ufuk sisine bağlanma */',
-      '  float f = clamp((1.0 - clamp(d.y * 6.0, 0.0, 1.0)) * 0.55, 0.0, 1.0);',
-      '  col = mix(col, uSkyHorizon, f * 0.35);',
-      '  gl_FragColor = vec4(col, 1.0);',
-      '}'
-    ].join('\n');
-
-    /* ---------- sprite (billboard) ---------- */
-    const sprVS = [
-      'attribute vec2 aPos;',                 // köşe (-0.5..0.5, 0..1)
-      'attribute vec3 aCenter;',              // dünya merkezi (x, zemin, z)
-      'attribute vec2 aSize;',                // genişlik, yükseklik
-      'attribute vec4 aUV;',                  // u0, v0, u1, v1 (atlasta)
-      'attribute vec2 aTint;',                // parlaklık, alfa
-      'uniform mat4 uVP;',
-      'varying vec2 vUV;',
-      'varying vec2 vTint;',
-      'varying vec3 vWorld;',
-      'void main() {',
-      '  /* kameraya bakan billboard: sağ vektörü kameranın sağıdır */',
-      '  vec3 right = normalize(vec3(uVP[0][0], 0.0, uVP[0][2]));',
-      '  vec3 pos = aCenter + right * (aPos.x * aSize.x) + vec3(0.0, aPos.y * aSize.y, 0.0);',
-      '  vWorld = pos;',
-      '  vUV = vec2(mix(aUV.x, aUV.z, aPos.x + 0.5), mix(aUV.w, aUV.y, aPos.y + 0.5));',
-      '  vTint = aTint;',
-      '  gl_Position = uVP * vec4(pos, 1.0);',
-      '}'
-    ].join('\n');
-    const sprFS = [
-      '#ifdef GL_FRAGMENT_PRECISION_HIGH',
-      'precision highp float;',
-      '#else',
-      'precision mediump float;',
-      '#endif',
-      'uniform sampler2D uAtlas;',
-      'uniform vec3 uCamPos;',
-      'uniform vec3 uFogCol;',
-      'uniform float uFogDens;',
-      'uniform float uLight;',
-      'uniform vec3 uAmbient;',
-      'uniform vec3 uTorchCol;',
-      'uniform float uTorch;',
-      'varying vec2 vUV;',
-      'varying vec2 vTint;',
-      'varying vec3 vWorld;',
-      'void main() {',
-      '  vec4 tex = texture2D(uAtlas, vUV);',
-      '  if (tex.a < 0.06) discard;',
-      '  float dist = length(uCamPos - vWorld);',
-      '  vec3 col = tex.rgb * (uAmbient + vec3(uLight) * 0.75) * vTint.x;',
-      '  if (uTorch > 0.001) col += tex.rgb * uTorchCol * uTorch * (1.0 / (1.0 + dist * dist * 0.05)) * 0.55;',
-      '  float f = clamp(dist * uFogDens, 0.0, 1.0);',
-      '  col = mix(col, uFogCol, f);',
-      '  gl_FragColor = vec4(col, tex.a * vTint.y);',
-      '}'
-    ].join('\n');
-
-    /* ---------- post: parlak geçiş + bulanıklık + birleştirme ---------- */
-    const quadVS = [
-      'attribute vec2 aPos;',
-      'varying vec2 vUV;',
-      'void main() { vUV = aPos * 0.5 + 0.5; gl_Position = vec4(aPos, 0.0, 1.0); }'
-    ].join('\n');
-
-    const brightFS = [
-      'precision mediump float;',
-      'uniform sampler2D uTex;',
-      'uniform float uThreshold;',
-      'varying vec2 vUV;',
-      'void main() {',
-      '  vec3 c = texture2D(uTex, vUV).rgb;',
-      '  float l = dot(c, vec3(0.2126, 0.7152, 0.0722));',
-      '  float k = max(0.0, l - uThreshold) / max(0.0001, 1.0 - uThreshold);',
-      '  gl_FragColor = vec4(c * k, 1.0);',
-      '}'
-    ].join('\n');
-
-    const blurFS = [
-      'precision mediump float;',
-      'uniform sampler2D uTex;',
-      'uniform vec2 uDir;',
-      'varying vec2 vUV;',
-      'void main() {',
-      '  vec3 s = texture2D(uTex, vUV).rgb * 0.227;',
-      '  s += texture2D(uTex, vUV + uDir * 1.3846).rgb * 0.316;',
-      '  s += texture2D(uTex, vUV - uDir * 1.3846).rgb * 0.316;',
-      '  s += texture2D(uTex, vUV + uDir * 3.2308).rgb * 0.070;',
-      '  s += texture2D(uTex, vUV - uDir * 3.2308).rgb * 0.070;',
-      '  gl_FragColor = vec4(s, 1.0);',
-      '}'
-    ].join('\n');
-
-    const compFS = [
-      '#ifdef GL_FRAGMENT_PRECISION_HIGH',
-      'precision highp float;',
-      '#else',
-      'precision mediump float;',
-      '#endif',
-      'uniform sampler2D uTex;',
-      'uniform sampler2D uBloom;',
-      'uniform float uExposure;',
-      'uniform float uBloomAmt;',
-      'uniform float uCA;',
-      'uniform float uGrain;',
-      'uniform float uTime;',
-      'uniform float uVignette;',
-      'uniform vec2 uRes;',                 // sahne (süper örneklemeli) çözünürlük
-      'uniform float uSS;',                 // süper örnekleme oranı
-      'varying vec2 vUV;',
-      'vec3 samp(vec2 uv) {',
-      '  if (uSS <= 1.001) return texture2D(uTex, uv).rgb;',
-      '  vec2 t = 0.35 / uRes;',
-      '  vec3 c0 = texture2D(uTex, uv + vec2(-t.x, -t.y)).rgb + texture2D(uTex, uv + vec2(t.x, -t.y)).rgb;',
-      '  vec3 c1 = texture2D(uTex, uv + vec2(-t.x, t.y)).rgb + texture2D(uTex, uv + vec2(t.x, t.y)).rgb;',
-      '  return (c0 + c1) * 0.25;',
-      '}',
-      'vec3 aces(vec3 x) {',
-      '  return clamp((x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14), 0.0, 1.0);',
-      '}',
-      'float hash(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }',
-      'void main() {',
-      '  vec2 uv = vUV;',
-      '  vec2 d = uv - 0.5;',
-      '  float r2 = dot(d, d);',
-      '  /* renk sapması: kenarlara doğru artar */',
-      '  vec2 off = d * (uCA * 0.006) * (0.35 + r2 * 2.4);',
-      '  vec3 col;',
-      '  col.r = samp(uv + off).r;',
-      '  col.g = samp(uv).g;',
-      '  col.b = samp(uv - off).b;',
-      '  col *= uExposure;',
-      '  col += texture2D(uBloom, uv).rgb * uBloomAmt;',
-      '  col = aces(col);',
-      '  /* vinyet */',
-      '  float v = smoothstep(0.95, 0.28, length(d) * 1.42);',
-      '  col *= mix(1.0 - uVignette, 1.0, v);',
-      '  /* film greni */',
-      '  float n = hash(uv * uRes * 0.5 + fract(uTime) * 137.0) - 0.5;',
-      '  col += n * uGrain;',
-      '  /* hafif keskinleştirme (kontrast kaybını telafi) */',
-      '  vec3 blur = samp(uv + vec2(1.0 / uRes.x, 0.0)) + samp(uv - vec2(1.0 / uRes.x, 0.0));',
-      '  col += (col - (blur + col) * 0.5) * 0.10;',
-      '  gl_FragColor = vec4(col, 1.0);',
-      '}'
-    ].join('\n');
-
-    this.pWorld = this._compile(worldVS, worldFS, 'dünya');
-    this.pSky = this._compile(skyVS, skyFS, 'gökyüzü');
-    this.pSprite = this._compile(sprVS, sprFS, 'sprite');
-    this.pBright = this._compile(quadVS, brightFS, 'parlak');
-    this.pBlur = this._compile(quadVS, blurFS, 'bulanık');
-    this.pComp = this._compile(quadVS, compFS, 'birleştir');
-
-    /* tam ekran dörtgen */
-    const quad = this.gl.createBuffer();
-    this.gl.bindBuffer(this.gl.ARRAY_BUFFER, quad);
-    this.gl.bufferData(this.gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), this.gl.STATIC_DRAW);
-    this.quadBuf = quad;
-
-    /* sprite dörtgeni (birim kare) */
-    const spr = this.gl.createBuffer();
-    this.gl.bindBuffer(this.gl.ARRAY_BUFFER, spr);
-    this.gl.bufferData(this.gl.ARRAY_BUFFER, new Float32Array([
-      -0.5, 0, 0.5, 0, -0.5, 1, 0.5, 1
-    ]), this.gl.STATIC_DRAW);
-    this.sprQuad = spr;
+  GL._buildSky = function () {
+    const T = this.T;
+    const geo = new T.SphereGeometry(300, 32, 20);
+    const mat = new T.ShaderMaterial({
+      side: T.BackSide,
+      depthWrite: false,
+      fog: false,
+      uniforms: {
+        uTop: { value: new T.Color(0x0a1020) },
+        uHorizon: { value: new T.Color(0x2a3242) },
+        uSun: { value: new T.Vector3(0.5, 0.6, 0.5) },
+        uSunCol: { value: new T.Color(0xffe6bc) },
+        uStars: { value: 0.6 },
+        uClouds: { value: 0.3 },
+        uTime: { value: 0 }
+      },
+      vertexShader: [
+        'varying vec3 vDir;',
+        'void main() {',
+        '  vDir = position;',
+        '  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);',
+        '}'
+      ].join('\n'),
+      fragmentShader: [
+        '#ifdef GL_FRAGMENT_PRECISION_HIGH',
+        'precision highp float;',
+        '#else',
+        'precision mediump float;',
+        '#endif',
+        'uniform vec3 uTop;',
+        'uniform vec3 uHorizon;',
+        'uniform vec3 uSun;',
+        'uniform vec3 uSunCol;',
+        'uniform float uStars;',
+        'uniform float uClouds;',
+        'uniform float uTime;',
+        'varying vec3 vDir;',
+        'void main() {',
+        '  vec3 d = normalize(vDir);',
+        '  float up = clamp(d.y * 1.15 + 0.06, 0.0, 1.0);',
+        '  vec3 col = mix(uHorizon, uTop, pow(up, 0.72));',
+        '  vec3 S = normalize(uSun);',
+        '  float sd = max(dot(d, S), 0.0);',
+        '  col += uSunCol * (pow(sd, 1400.0) * 3.0 + pow(sd, 30.0) * 0.20 + pow(sd, 6.0) * 0.05);',
+        '  if (uStars > 0.01 && d.y > 0.0) {',
+        '    vec2 sp = floor(d.xz * 300.0 / max(0.25, d.y + 0.35));',
+        '    float h = fract(sin(dot(sp, vec2(12.9898, 78.233))) * 43758.5453);',
+        '    float star = step(0.9968, h) * uStars * smoothstep(0.0, 0.30, d.y);',
+        '    col += vec3(star) * (0.7 + 0.6 * fract(h * 71.0));',
+        '  }',
+        '  float band = smoothstep(0.10, 0.55, d.y);',
+        '  float cl = sin(d.x * 3.1 + uTime * 0.012) * 0.5 + sin(d.z * 2.3 - uTime * 0.009) * 0.5;',
+        '  col = mix(col, vec3(0.58, 0.61, 0.66), clamp(uClouds, 0.0, 1.0) * band * 0.30 * (0.6 + 0.4 * cl));',
+        '  gl_FragColor = vec4(col, 1.0);',
+        '}'
+      ].join('\n')
+    });
+    const sky = new T.Mesh(geo, mat);
+    sky.frustumCulled = false;
+    sky.renderOrder = -1000;
+    this.scene.add(sky);
+    this.sky = sky;
   };
 
   /* ============================================================
-     DOKULAR (doku atlasları)
+     KONUM SONRASI (bloom + derecelendirme)
      ============================================================ */
+  GL._buildComposer = function () {
+    const T = this.T;
+    const size = new T.Vector2(2, 2);
+    let rt;
+    if (this.isWebGL2 && T.WebGLMultisampleRenderTarget) {
+      rt = new T.WebGLMultisampleRenderTarget(2, 2, { format: T.RGBAFormat, samples: 4 });
+      GL.ss = 4;
+    } else {
+      rt = new T.WebGLRenderTarget(2, 2, { format: T.RGBAFormat });
+      GL.ss = 1;
+    }
+    this.rt = rt;
+    const composer = new T.EffectComposer(this.renderer, rt);
+    composer.addPass(new T.RenderPass(this.scene, this.camera));
+    this.passRender = composer.passes[0];
+
+    const bloom = new T.UnrealBloomPass(size, 0.32, 0.55, 0.86);
+    composer.addPass(bloom);
+    this.passBloom = bloom;
+
+    /* son katman: vinyet + film greni + renk sapması + hafif keskinleştirme */
+    const grade = new T.ShaderPass({
+      uniforms: {
+        tDiffuse: { value: null },
+        uExposure: { value: 1.0 },
+        uCA: { value: 0.5 },
+        uGrain: { value: 0.3 },
+        uTime: { value: 0 },
+        uVignette: { value: 0.30 },
+        uRes: { value: new T.Vector2(1280, 720) }
+      },
+      vertexShader: [
+        'varying vec2 vUv;',
+        'void main() {',
+        '  vUv = uv;',
+        '  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);',
+        '}'
+      ].join('\n'),
+      fragmentShader: [
+        '#ifdef GL_FRAGMENT_PRECISION_HIGH',
+        'precision highp float;',
+        '#else',
+        'precision mediump float;',
+        '#endif',
+        'uniform sampler2D tDiffuse;',
+        'uniform float uExposure;',
+        'uniform float uCA;',
+        'uniform float uGrain;',
+        'uniform float uTime;',
+        'uniform float uVignette;',
+        'uniform vec2 uRes;',
+        'varying vec2 vUv;',
+        'float hash(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }',
+        'vec3 aces(vec3 x) {',
+        '  return clamp((x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14), 0.0, 1.0);',
+        '}',
+        'vec3 lin2srgb(vec3 c) {',
+        '  vec3 lo = c * 12.92;',
+        '  vec3 hi = 1.055 * pow(max(c, vec3(0.0)), vec3(1.0 / 2.4)) - 0.055;',
+        '  return mix(lo, hi, step(vec3(0.0031308), c));',
+        '}',
+        'void main() {',
+        '  vec2 uv = vUv;',
+        '  vec2 d = uv - 0.5;',
+        '  float r2 = dot(d, d);',
+        '  vec2 off = d * (uCA * 0.0035) * (0.35 + r2 * 2.2);',
+        '  vec3 col;',
+        '  col.r = texture2D(tDiffuse, uv + off).r;',
+        '  col.g = texture2D(tDiffuse, uv).g;',
+        '  col.b = texture2D(tDiffuse, uv - off).b;',
+        '  col *= uExposure;',
+        '  vec3 blur = texture2D(tDiffuse, uv + vec2(1.0 / uRes.x, 0.0)).rgb;',
+        '  blur += texture2D(tDiffuse, uv - vec2(1.0 / uRes.x, 0.0)).rgb;',
+        '  col += (col - (blur + col) * 0.5) * 0.10;',
+        '  float v = smoothstep(0.98, 0.30, length(d) * 1.36);',
+        '  col *= mix(1.0 - uVignette, 1.0, v);',
+        '  col = aces(col);',
+        '  col = lin2srgb(col);',
+        '  float n = hash(uv * uRes * 0.5 + fract(uTime) * 137.0) - 0.5;',
+        '  col += n * uGrain;',
+        '  gl_FragColor = vec4(clamp(col, 0.0, 1.0), 1.0);',
+        '}'
+      ].join('\n')
+    });
+    composer.addPass(grade);
+    grade.renderToScreen = true;
+    this.passGrade = grade;
+    this.composer = composer;
+  };
+
+  /* ============================================================
+     DOKULAR → MATERYALLER
+     ============================================================ */
+  GL._normTex = function (cv) {
+    const T = this.T;
+    const n = cv._normal;
+    if (!n) return null;
+    const w = cv.width, h = cv.height;
+    const data = new Uint8Array(w * h * 4);
+    for (let i = 0, p = 0; p < w * h; p++, i += 4) {
+      data[i] = n[p * 2];
+      data[i + 1] = n[p * 2 + 1];
+      data[i + 2] = 255;
+      data[i + 3] = 255;
+    }
+    const tex = new T.DataTexture(data, w, h, T.RGBAFormat);
+    tex.wrapS = tex.wrapT = T.RepeatWrapping;
+    tex.minFilter = T.LinearMipmapLinearFilter;
+    tex.magFilter = T.LinearFilter;
+    tex.generateMipmaps = true;
+    tex.anisotropy = this.maxAniso || 4;
+    tex.needsUpdate = true;
+    return tex;
+  };
+
+  GL._roughTex = function (cv) {
+    const T = this.T;
+    const s = cv._spec;
+    if (!s) return null;
+    const w = cv.width, h = cv.height;
+    const data = new Uint8Array(w * h * 4);
+    for (let i = 0, p = 0; p < w * h; p++, i += 4) {
+      const v = s[p];
+      data[i] = v; data[i + 1] = v; data[i + 2] = v; data[i + 3] = 255;
+    }
+    const tex = new T.DataTexture(data, w, h, T.RGBAFormat);
+    tex.wrapS = tex.wrapT = T.RepeatWrapping;
+    tex.minFilter = T.LinearMipmapLinearFilter;
+    tex.magFilter = T.LinearFilter;
+    tex.generateMipmaps = true;
+    tex.needsUpdate = true;
+    return tex;
+  };
+
+  /* parlayan karolar (rune taşları, kapı, kovan) */
+  const EMISSIVE = {};
+  EMISSIVE[9] = { color: 0x69c8ff, power: 0.85 };       // RUNE_PI
+  EMISSIVE[10] = { color: 0x7fe0ff, power: 0.55 };      // RUNE_SYS
+  EMISSIVE[14] = { color: 0xff7a2a, power: 0.75 };      // GATE
+  EMISSIVE[17] = { color: 0xff8b3a, power: 0.60 };      // HIVE
+  for (let k = 0; k < 8; k++) EMISSIVE[100 + k] = { color: 0x9fdcff, power: 0.95 };
+
   GL.prepare = function (tex) {
-    if (!this.ok) return;
+    if (!this.ok || !tex) return;
     try {
-      const gl = this.gl;
-      const P = this.atlasSize;
-      /* karo kimlikleri 107'ye kadar çıkıyor: yalnızca dokusu olanları
-         sırayla atlas slotlarına yerleştir (boşuna dev atlas üretmeyiz) */
-      const slots = [];
-      const map = new Int16Array(256).fill(-1);
-      for (let i = 0; i < tex.walls.length; i++) {
-        if (!tex.walls[i]) continue;
-        map[i] = slots.length;
-        slots.push(tex.walls[i]);
-      }
-      this.slotOf = map;
-      const COLS = 8;
-      let ROWS = 2;
-      while (ROWS * COLS < slots.length && ROWS < 16) ROWS *= 2;   // mipmap için 2'nin kuvveti
-      if (ROWS * COLS < slots.length) throw new Error('doku atlası yetmedi: ' + slots.length + ' karo');
-      this.atlasCols = COLS; this.atlasRows = ROWS; this.slotCount = slots.length;
-      const AW = P * COLS, AH = P * ROWS;
-      if (gl.getParameter(gl.MAX_TEXTURE_SIZE) < AW) throw new Error('atlas GPU sınırını aşıyor: ' + AW);
+      const T = this.T;
+      this.maxAniso = Math.min(8, this.renderer.capabilities.getMaxAnisotropy ? this.renderer.capabilities.getMaxAnisotropy() : 4);
 
-      const mk = () => { const c = MV.makeCanvas(AW, AH); const x = c.getContext('2d'); x.clearRect(0, 0, AW, AH); return { c: c, x: x }; };
-      const A = mk(), N = mk(), S = mk();
-      const tmp = MV.makeCanvas(P, P), tctx = tmp.getContext('2d');
-
-      for (let i = 0; i < slots.length; i++) {
-        const cv = slots[i];
+      const walls = tex.walls || [];
+      this._texIds = {};
+      for (let id = 0; id < walls.length; id++) {
+        const cv = walls[id];
         if (!cv) continue;
-        const cx = (i % COLS) * P, cy = ((i / COLS) | 0) * P;
-        A.x.drawImage(cv, cx, cy);
-        const w = cv.width, h = cv.height;
-        if (cv._normal) {
-          const im = tctx.createImageData(w, h);
-          for (let p = 0; p < w * h; p++) {
-            im.data[p * 4] = cv._normal[p * 2];
-            im.data[p * 4 + 1] = cv._normal[p * 2 + 1];
-            im.data[p * 4 + 2] = 255;
-            im.data[p * 4 + 3] = 255;
-          }
-          tctx.putImageData(im, 0, 0);
-          N.x.drawImage(tmp, cx, cy);
+        this._texIds[id] = 1;
+        const map = new T.CanvasTexture(cv);
+        map.encoding = T.sRGBEncoding;
+        map.wrapS = map.wrapT = T.RepeatWrapping;
+        map.anisotropy = this.maxAniso;
+        map.needsUpdate = true;
+        const em = EMISSIVE[id];
+        const mat = new T.MeshStandardMaterial({
+          map: map,
+          normalMap: this._normTex(cv),
+          roughnessMap: this._roughTex(cv),
+          roughness: 0.94,
+          metalness: 0.02,
+          vertexColors: true,
+          dithering: true
+        });
+        if (mat.normalMap) mat.normalScale.set(0.9, 0.9);
+        if (em) {
+          mat.emissive = new T.Color(em.color);
+          mat.emissiveIntensity = em.power;
+          mat.emissiveMap = map;
         }
-        if (cv._spec) {
-          const im = tctx.createImageData(w, h);
-          for (let p = 0; p < w * h; p++) {
-            const s = cv._spec[p];
-            im.data[p * 4] = s; im.data[p * 4 + 1] = s; im.data[p * 4 + 2] = s; im.data[p * 4 + 3] = 255;
-          }
-          tctx.putImageData(im, 0, 0);
-          S.x.drawImage(tmp, cx, cy);
-        }
+        this.mats[id] = mat;
       }
-      this.texAlbedo = this._texture(A.c, { pot: true });
-      this.texNormal = this._texture(N.c, { pot: true });
-      this.texSpec = this._texture(S.c, { pot: true });
 
-      /* ---- sprite atlası ---- */
-      const SA = 1024;
-      const sc = MV.makeCanvas(SA, SA), sx2 = sc.getContext('2d');
-      sx2.clearRect(0, 0, SA, SA);
-      const rects = {};
-      let penX = 0, penY = 0, rowH = 0;
-      const place = (cv) => {
-        if (cv.width + penX > SA) { penX = 0; penY += rowH + 2; rowH = 0; }
-        if (penY + cv.height > SA) return null;
-        const r = { x: penX, y: penY, w: cv.width, h: cv.height };
-        sx2.drawImage(cv, penX, penY);
-        penX += cv.width + 2;
-        rowH = Math.max(rowH, cv.height);
-        return r;
-      };
-      for (const name in tex.sprites) {
-        const cv = tex.sprites[name];
+      /* ---- sprite materyalleri (kare animasyonlu) ---- */
+      const sprites = tex.sprites || {};
+      let dollCount = 0;
+      for (const name in sprites) {
+        const cv = sprites[name];
         if (!cv) continue;
-        if (Array.isArray(cv)) {
-          rects[name] = [];
-          for (const f of cv) rects[name].push(place(f));
-        } else {
-          rects[name] = place(cv);
+        const list = Array.isArray(cv) ? cv : [cv];
+        for (let f = 0; f < list.length; f++) {
+          const frameCv = list[f];
+          if (!frameCv) continue;
+          const t = new T.CanvasTexture(frameCv);
+          t.encoding = T.sRGBEncoding;
+          t.anisotropy = this.maxAniso;
+          t.needsUpdate = true;
+          const sm = new T.SpriteMaterial({
+            map: t, alphaTest: 0.35, transparent: true, fog: true,
+            depthWrite: true, depthTest: true, sizeAttenuation: true
+          });
+          this.spriteMats[name + ':' + f] = sm;
+          dollCount++;
         }
+        /* tek kareli isimler için 0. kareye takma ad */
+        if (list.length && !this.spriteMats[name + ':0']) this.spriteMats[name + ':0'] = this.spriteMats[name + ':0'];
       }
-      this.spriteRects = rects;
-      this.texSprites = this._texture(sc, { pot: true });
+      this.spriteTotal = dollCount;
+
+      /* ---- gölge lekesi dokusu ---- */
+      const bc = MV.makeCanvas(64, 64);
+      const bx = bc.getContext('2d');
+      const g = bx.createRadialGradient(32, 32, 2, 32, 32, 30);
+      g.addColorStop(0, 'rgba(0,0,0,0.55)');
+      g.addColorStop(0.65, 'rgba(0,0,0,0.28)');
+      g.addColorStop(1, 'rgba(0,0,0,0)');
+      bx.fillStyle = g;
+      bx.fillRect(0, 0, 64, 64);
+      const bt = new T.CanvasTexture(bc);
+      bt.needsUpdate = true;
+      this.blobMat = new T.MeshBasicMaterial({ map: bt, transparent: true, depthWrite: false, color: 0x000000, opacity: 1, fog: true });
+      this.blobGeo = new T.CircleGeometry(0.5, 14);
 
       this.prepared = true;
+      log('materyal hazır: ' + Object.keys(this.mats).length + ' doku · ' + dollCount + ' sprite karesi');
     } catch (e) {
       this.ok = false;
-      this.status = 'CPU (doku yükleme hatası: ' + (e && e.message ? e.message : e) + ')';
-      if (MV.logMsg) MV.logMsg('[GL] ' + this.status);
+      this.status = 'CPU (materyal hatası: ' + (e && e.message ? e.message : e) + ')';
+      log(this.status);
     }
   };
 
   /* ============================================================
-     GEOMETRİ: bölüm bölüm dünya ağı
+     DÜNYA → GEOMETRİ (saf veri; GPU'suz da çalışır ve sınanabilir)
      ============================================================ */
-  const CHUNK = 16;      /* 16x16 karo: köşe sayısı 65535'in altında kalır (Uint16 indeks) */
-
-  GL._chunkAt = function (cx, cy) {
-    const key = cx + ':' + cy;
-    let ch = this.chunks[key];
-    if (ch) return ch;
-    ch = { key: key, cx: cx, cy: cy, vbo: null, ibo: null, count: 0, stamp: -1 };
-    this.chunks[key] = ch;
-    return ch;
-  };
-
-  GL._buildChunk = function (ch) {
-    const gl = this.gl, w = this.worldRef;
+  /* Bir karoya karşılık gelen doku döşeme yoğunluğu: 1 birim = 1 doku */
+  GL.buildChunkData = function (world, cx, cy, gatesOpen) {
     const T = MV.T;
-    const x0 = ch.cx * CHUNK, y0 = ch.cy * CHUNK;
-    const x1 = Math.min(x0 + CHUNK, w.W), y1 = Math.min(y0 + CHUNK, w.H);
-    const verts = [], idx = [];
-    const COLS = this.atlasCols, ROWS = this.atlasRows;
+    const hasTex = (id) => (!this._texIds ? true : !!this._texIds[id]);
+    const pick = (id, alt) => (hasTex(id) ? id : alt);
+    const x0 = cx * CHUNK, y0 = cy * CHUNK;
+    const x1 = Math.min(x0 + CHUNK, world.W), y1 = Math.min(y0 + CHUNK, world.H);
+    const mats = {};
+    let tris = 0, cells = 0, walls = 0, floors = 0, ceils = 0;
 
-    /* karo kimliği -> atlas slotu; dokusu olmayan karo karanlık yüz olur */
-    const slotted = (id) => {
-      const t = this.slotOf;
-      const sl = t && id < t.length ? t[id] : id;
-      return sl === undefined || sl < 0 ? -1 : sl;
+    const bucket = (id) => {
+      let b = mats[id];
+      if (!b) {
+        b = mats[id] = { pos: [], nrm: [], uv: [], col: [], idx: [] };
+      }
+      return b;
     };
-    const push = (x, y, z, u, v, id, shade, ao, flags) => {
-      let slot = slotted(id);
-      if (slot < 0) { slot = 0; flags = 1; }
-      verts.push(x, y, z, u, v, slot, 0, shade, ao, flags || 0);
-      return (verts.length / 10) - 1;
+    const quad = (b, a, bb, c, d, nx, ny, nz, uv, shade) => {
+      const base = b.pos.length / 3;
+      const P = [a, bb, c, d];
+      for (let i = 0; i < 4; i++) {
+        b.pos.push(P[i][0], P[i][1], P[i][2]);
+        b.nrm.push(nx, ny, nz);
+        b.uv.push(uv[i][0], uv[i][1]);
+        b.col.push(shade, shade, shade);
+      }
+      b.idx.push(base, base + 1, base + 2, base, base + 2, base + 3);
+      tris += 2;
     };
-    const quad = (a, b, c, d) => { idx.push(a, b, c, a, c, d); };
 
     for (let y = y0; y < y1; y++) {
       for (let x = x0; x < x1; x++) {
-        const i = y * w.W + x;
-        const solid = w.solid[i] === 1;
-        const isVoid = w.void[i] === 1;
-        const dx = x + 0.5 - w.cx, dy = y + 0.5 - w.cy;
-        const r = Math.sqrt(dx * dx + dy * dy);
-        /* CPU hattıyla aynı kural: yalnızca Kayran açık gökyüzü, dışı örtülü */
-        const indoor = r >= MV.K.R1 - 0.5;
-        /* açıklık → AO: komşu duvar sayısı */
+        cells++;
+        const i = y * world.W + x;
+        const isGate = world.gate[i] === 1 && !gatesOpen;
+        const solid = world.solid[i] === 1 || isGate;
+        const isVoid = world.void[i] === 1;
+        const dxc = x + 0.5 - world.cx, dyc = y + 0.5 - world.cy;
+        const r = Math.sqrt(dxc * dxc + dyc * dyc);
+        const covered = r >= (MV.K.R1 - 0.5);        // Kayran açık, dışı tavanlı
+
         let open = 0;
         for (let d = 0; d < 4; d++) {
           const nx = x + (d === 0 ? 1 : d === 1 ? -1 : 0), ny = y + (d === 2 ? 1 : d === 3 ? -1 : 0);
-          if (nx < 0 || ny < 0 || nx >= w.W || ny >= w.H) continue;
-          if (w.solid[ny * w.W + nx] !== 1) open++;
+          if (nx < 0 || ny < 0 || nx >= world.W || ny >= world.H) continue;
+          if (world.solid[ny * world.W + nx] !== 1) open++;
         }
-        const ao = 0.62 + 0.095 * open;                       /* 0..1 arası yumuşak ambient occlusion */
-        /* bölgeye göre ortam ışığı: Kayran açık, koru yarı açık, labirent kapalı */
+        const ao = 0.58 + 0.105 * open;
         let shade;
-        if (!indoor) shade = 1.0;
-        else if (r < MV.K.R2B) shade = 0.88 + 0.035 * open;    // koru halkası
-        else if (r < MV.K.RAV0) shade = 0.62 + 0.09 * open;    // labirent kuşağı
-        else shade = 0.76 + 0.05 * open;                       // dış kuşak
+        if (!covered) shade = 1.0;
+        else if (r < MV.K.R2B) shade = 0.86 + 0.035 * open;
+        else if (r < MV.K.RAV0) shade = 0.58 + 0.10 * open;
+        else shade = 0.72 + 0.06 * open;
+        const lit = Math.min(1.25, ao * shade);
 
         if (solid) {
-          const hgt = w.hscale[i] ? w.hscale[i] / 10 : 4;
-          const wall = w.wall[i] || T.STONE;
-          const gate = w.gate[i] === 1;
-          const slot = gate ? T.GATE : wall;
-          /* dört komşuya bakan yüzler */
+          walls++;
+          const hgt = world.hscale[i] ? world.hscale[i] / 10 : CEIL_Y;
+          const wall = world.wall[i] || T.STONE;
+          const id = pick(isGate ? T.GATE : wall, T.STONE);
+          const b = bucket(id);
+          const s = 1;                                  // doku yoğunluğu
           for (let d = 0; d < 4; d++) {
             const nx = x + (d === 0 ? 1 : d === 1 ? -1 : 0), ny = y + (d === 2 ? 1 : d === 3 ? -1 : 0);
-            if (nx < 0 || ny < 0 || nx >= w.W || ny >= w.H) continue;
-            if (w.solid[ny * w.W + nx] === 1) continue;
-            const X0 = x, X1 = x + 1, Y0 = y, Y1 = y + 1;
-            let a, b, c, e;
-            if (d === 0) {        /* +x yönü */
-              a = push(X1, 0, Y1, 0, hgt, slot, shade, ao);
-              b = push(X1, 0, Y0, 1, hgt, slot, shade, ao);
-              c = push(X1, hgt, Y0, 1, 0, slot, shade, ao);
-              e = push(X1, hgt, Y1, 0, 0, slot, shade, ao);
-            } else if (d === 1) { /* -x */
-              a = push(X0, 0, Y0, 0, hgt, slot, shade, ao);
-              b = push(X0, 0, Y1, 1, hgt, slot, shade, ao);
-              c = push(X0, hgt, Y1, 1, 0, slot, shade, ao);
-              e = push(X0, hgt, Y0, 0, 0, slot, shade, ao);
-            } else if (d === 2) { /* +y (z) */
-              a = push(X0, 0, Y1, 0, hgt, slot, shade, ao);
-              b = push(X1, 0, Y1, 1, hgt, slot, shade, ao);
-              c = push(X1, hgt, Y1, 1, 0, slot, shade, ao);
-              e = push(X0, hgt, Y1, 0, 0, slot, shade, ao);
-            } else {              /* -y (z) */
-              a = push(X1, 0, Y0, 0, hgt, slot, shade, ao);
-              b = push(X0, 0, Y0, 1, hgt, slot, shade, ao);
-              c = push(X0, hgt, Y0, 1, 0, slot, shade, ao);
-              e = push(X1, hgt, Y0, 0, 0, slot, shade, ao);
+            if (nx < 0 || ny < 0 || nx >= world.W || ny >= world.H) continue;
+            if (world.solid[ny * world.W + nx] === 1) continue;
+            const X0 = x, X1 = x + 1, Y0 = y, Y1 = y + 1, H = hgt;
+            if (d === 0) {          /* +x */
+              quad(b, [X1, 0, Y1], [X1, 0, Y0], [X1, H, Y0], [X1, H, Y1], 1, 0, 0,
+                [[0, 0], [s, 0], [s, H * s], [0, H * s]], lit);
+            } else if (d === 1) {   /* -x */
+              quad(b, [X0, 0, Y0], [X0, 0, Y1], [X0, H, Y1], [X0, H, Y0], -1, 0, 0,
+                [[0, 0], [s, 0], [s, H * s], [0, H * s]], lit);
+            } else if (d === 2) {   /* +z */
+              quad(b, [X0, 0, Y1], [X1, 0, Y1], [X1, H, Y1], [X0, H, Y1], 0, 0, 1,
+                [[0, 0], [s, 0], [s, H * s], [0, H * s]], lit);
+            } else {                /* -z */
+              quad(b, [X1, 0, Y0], [X0, 0, Y0], [X0, H, Y0], [X1, H, Y0], 0, 0, -1,
+                [[0, 0], [s, 0], [s, H * s], [0, H * s]], lit);
             }
-            quad(a, b, c, e);
           }
           continue;
         }
 
-        /* zemin */
-        const fl = w.floor[i];
+        /* --- zemin --- */
         if (isVoid) {
-          const a = push(x, 0, y, 0, 0, T.ROCK, 0.25, 0.5, 1);
-          const b = push(x + 1, 0, y, 1, 0, T.ROCK, 0.25, 0.5, 1);
-          const c = push(x + 1, 0, y + 1, 1, 1, T.ROCK, 0.25, 0.5, 1);
-          const e = push(x, 0, y + 1, 0, 1, T.ROCK, 0.25, 0.5, 1);
-          quad(a, b, c, e);
-        } else if (fl !== undefined && fl !== null) {
-          const a = push(x, 0, y + 1, 0, 1, fl, shade, ao);
-          const b = push(x + 1, 0, y + 1, 1, 1, fl, shade, ao);
-          const c = push(x + 1, 0, y, 1, 0, fl, shade, ao);
-          const e = push(x, 0, y, 0, 0, fl, shade, ao);
-          quad(a, b, c, e);
+          const b = bucket(pick(T.ROCK, T.DIRT));
+          quad(b, [x, 0, y + 1], [x + 1, 0, y + 1], [x + 1, 0, y], [x, 0, y], 0, 1, 0,
+            [[0, 0], [s0(), 0], [s0(), s0()], [0, s0()]], 0.30);
+        } else {
+          const fl = world.floor[i];
+          if (fl) {
+            const b = bucket(pick(fl, T.DIRT));
+            quad(b, [x, 0, y + 1], [x + 1, 0, y + 1], [x + 1, 0, y], [x, 0, y], 0, 1, 0,
+              [[0, 0], [1, 0], [1, 1], [0, 1]], lit);
+            floors++;
+          }
         }
-        /* tavan: yalnızca kapalı labirent kuşağında */
-        if (indoor) {
-          const a = push(x, 4, y, 0, 0, T.CEIL, shade * 0.85, 0.55);
-          const b = push(x + 1, 4, y, 1, 0, T.CEIL, shade * 0.85, 0.55);
-          const c = push(x + 1, 4, y + 1, 1, 1, T.CEIL, shade * 0.85, 0.55);
-          const e = push(x, 4, y + 1, 0, 1, T.CEIL, shade * 0.85, 0.55);
-          quad(a, b, c, e);
+
+        /* --- tavan (yalnızca kapalı alanda) --- */
+        if (covered && hasTex(T.CEIL)) {
+          const b = bucket(T.CEIL);
+          quad(b, [x, CEIL_Y, y], [x + 1, CEIL_Y, y], [x + 1, CEIL_Y, y + 1], [x, CEIL_Y, y + 1], 0, -1, 0,
+            [[0, 0], [1, 0], [1, 1], [0, 1]], Math.min(1.1, lit * 0.9));
+          ceils++;
         }
       }
     }
+    function s0() { return 2; }                       /* uçurum dokusu daha büyük döşenir */
 
-    gl.bindBuffer(gl.ARRAY_BUFFER, ch.vbo || (ch.vbo = gl.createBuffer()));
-    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(verts), gl.STATIC_DRAW);
-    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ch.ibo || (ch.ibo = gl.createBuffer()));
-    /* 16x16 bölümde köşe sayısı 65k'yı aşmaz; yine de emniyet kemeri */
-    const big = verts.length / 10 > 65000;
-    if (big && !this.uintIndex) { ch.big = false; ch.count = 0; ch.stamp = this.worldStamp; return; }
-    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, big ? new Uint32Array(idx) : new Uint16Array(idx), gl.STATIC_DRAW);
-    ch.count = idx.length;
-    ch.big = big;
+    return { mats: mats, tris: tris, cells: cells, walls: walls, floors: floors, ceils: ceils };
+  };
+
+  /* ============================================================
+     BÖLÜM AĞLARI (THREE)
+     ============================================================ */
+  GL._chunkAt = function (cx, cy) {
+    const key = cx + ':' + cy;
+    let ch = this.chunks[key];
+    if (!ch) {
+      ch = { key: key, cx: cx, cy: cy, group: null, stamp: -1, tris: 0 };
+      this.chunks[key] = ch;
+    }
+    return ch;
+  };
+
+  GL._buildChunk = function (ch) {
+    const T = this.T;
+    const data = this.buildChunkData(this.worldRef, ch.cx, ch.cy, this._gatesOpen);
+    const group = new T.Group();
+    let meshes = 0;
+    for (const id in data.mats) {
+      const b = data.mats[id];
+      const mat = this.mats[id];
+      if (!mat || !b.idx.length) continue;
+      const geo = new T.BufferGeometry();
+      geo.setAttribute('position', new T.Float32BufferAttribute(b.pos, 3));
+      geo.setAttribute('normal', new T.Float32BufferAttribute(b.nrm, 3));
+      geo.setAttribute('uv', new T.Float32BufferAttribute(b.uv, 2));
+      geo.setAttribute('color', new T.Float32BufferAttribute(b.col, 3));
+      geo.setIndex(b.pos.length / 3 > 65000 ? new T.Uint32BufferAttribute(b.idx, 1) : new T.Uint16BufferAttribute(b.idx, 1));
+      geo.computeBoundingSphere();
+      const mesh = new T.Mesh(geo, mat);
+      mesh.castShadow = !this._noShadow;
+      mesh.receiveShadow = true;
+      mesh.matrixAutoUpdate = false;
+      mesh.updateMatrix();
+      group.add(mesh);
+      meshes++;
+    }
+    group.matrixAutoUpdate = false;
+    group.updateMatrix();
+    this.scene.add(group);
+    if (ch.group) this._disposeChunk(ch);
+    ch.group = group;
+    ch.tris = data.tris;
+    ch.meshes = meshes;
     ch.stamp = this.worldStamp;
+    return ch;
+  };
+
+  GL._disposeChunk = function (ch) {
+    if (!ch.group) return;
+    const g = ch.group;
+    this.scene.remove(g);
+    for (const m of g.children) {
+      if (m.geometry) m.geometry.dispose();
+    }
+    ch.group = null;
+    ch.tris = 0;
   };
 
   GL._updateChunks = function (px, py, radius) {
     const w = this.worldRef;
     if (!w) return;
-    const R = radius || 2;                       // chunk yarıçapı (32 karo * R ≥ sis menzili)
+    const R = radius === undefined ? CHUNK_R : radius;
     const ccx = Math.floor(px / CHUNK), ccy = Math.floor(py / CHUNK);
     const keep = {};
     const pending = [];
@@ -766,415 +654,243 @@
         }
       }
     }
-    /* kare başına bütçe: takılma olmasın, yakın bölümler önce */
     if (pending.length) {
       pending.sort((a, b) => a.d - b.d);
-      const budget = Math.min(6, pending.length);
+      const budget = Math.min(3, pending.length);
       for (let i = 0; i < budget; i++) this._buildChunk(pending[i].ch);
     }
-    /* uzaktaki bölümleri bırak */
     for (const key in this.chunks) {
       if (keep[key]) continue;
       const ch = this.chunks[key];
-      if (ch.vbo) this.gl.deleteBuffer(ch.vbo);
-      if (ch.ibo) this.gl.deleteBuffer(ch.ibo);
+      this._disposeChunk(ch);
       delete this.chunks[key];
     }
   };
 
-  /* dünya değişti (gece kaydırma / yeni gün) */
   GL.invalidate = function () {
     this.worldStamp++;
-    const gl = this.gl;
-    if (!gl) return;
     for (const key in this.chunks) {
       const ch = this.chunks[key];
-      if (ch.vbo) gl.deleteBuffer(ch.vbo);
-      if (ch.ibo) gl.deleteBuffer(ch.ibo);
+      this._disposeChunk(ch);
+      delete this.chunks[key];
     }
-    this.chunks = {};
   };
 
   /* ============================================================
-     BOYUT / HEDEFLER
+     SPRITE'LAR (yaratıklar, eşyalar, yapılar, gölge lekeleri)
      ============================================================ */
-  GL._resizeTargets = function (w, h) {
-    const gl = this.gl;
-    if (!gl) return;
-    const mkFBO = (W, H) => {
-      const tex = gl.createTexture();
-      gl.bindTexture(gl.TEXTURE_2D, tex);
-      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, W, H, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-      const fb = gl.createFramebuffer();
-      gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
-      gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
-      if (H !== undefined) {
-        const db = gl.createRenderbuffer();
-        gl.bindRenderbuffer(gl.RENDERBUFFER, db);
-        gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT16, W, H);
-        gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER, db);
-      }
-      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-      return { fb: fb, tex: tex, w: W, h: H };
-    };
-    const old = this.scene, oldA = this.brightA, oldB = this.brightB;
-    this.scene = mkFBO(Math.max(4, w), Math.max(4, h));
-    const bw = Math.max(2, Math.floor(w / 4)), bh = Math.max(2, Math.floor(h / 4));
-    this.brightA = mkFBO(bw, bh);
-    this.brightB = mkFBO(bw, bh);
-    for (const o of [old, oldA, oldB]) {
-      if (!o) continue;
-      gl.deleteFramebuffer(o.fb); gl.deleteTexture(o.tex);
+  GL._spriteMat = function (e) {
+    const name = e.sprite;
+    if (!name) return null;
+    const frames = [];
+    for (let f = 0; f < 8; f++) {
+      if (this.spriteMats[name + ':' + f]) frames.push(f);
+      else break;
     }
-    this.targetW = w; this.targetH = h;
+    if (frames.length) {
+      let fi = e.frame;
+      if (fi === undefined || fi === null) fi = Math.floor((e.anim || 0) * 6) % frames.length;
+      fi = ((fi % frames.length) + frames.length) % frames.length;
+      return this.spriteMats[name + ':' + fi];
+    }
+    return this.spriteMats[name + ':0'] || null;
   };
 
+  GL._syncEntities = function (v) {
+    const T = this.T;
+    const list = v.entities || [];
+    const pool = this.entities;
+    let used = 0, blobs = 0;
+    for (let i = 0; i < list.length; i++) {
+      const e = list[i];
+      const mat = this._spriteMat(e);
+      if (!mat) continue;
+      if (e.alpha !== undefined && e.alpha < 0.03) continue;
+      let sp = pool[used];
+      if (!sp) {
+        sp = new T.Sprite(mat.clone());          // her varlığın kendi ton/şeffaflığı
+        sp.center.set(0.5, 0);
+        this.scene.add(sp);
+        pool[used] = sp;
+      }
+      sp.visible = true;
+      const w = e.w || 1, h = e.h || 1;
+      const tint = (e.tint === undefined ? 1 : e.tint) + (e.glow || 0) * 0.85;
+      const alpha = e.alpha === undefined ? 1 : e.alpha;
+      sp.material.map = mat.map;
+      sp.material.alphaTest = mat.alphaTest;
+      sp.material.needsUpdate = false;
+      sp.position.set(e.x, (e.yOff || 0), e.y);
+      sp.scale.set(w, h, 1);
+      sp.material.color.setRGB(Math.min(3, tint), Math.min(3, tint), Math.min(3, tint));
+      sp.material.opacity = alpha;
+      sp.material.transparent = true;
+      used++;
+
+      /* gölge lekesi */
+      if (e.shadow && this.blobMat) {
+        let bl = this.blobs[blobs];
+        if (!bl) {
+          bl = new T.Mesh(this.blobGeo, this.blobMat.clone());
+          bl.rotation.x = -Math.PI / 2;
+          bl.receiveShadow = false;
+          this.scene.add(bl);
+          this.blobs[blobs] = bl;
+        }
+        bl.visible = true;
+        const bw = (e.shadowW || w) * 1.05;
+        bl.position.set(e.x, 0.015, e.y);
+        bl.scale.set(bw, bw * 0.85, 1);
+        bl.material.opacity = 0.5;
+        blobs++;
+      }
+    }
+    for (let i = used; i < pool.length; i++) if (pool[i]) pool[i].visible = false;
+    for (let i = blobs; i < this.blobs.length; i++) if (this.blobs[i]) this.blobs[i].visible = false;
+  };
+
+  /* ============================================================
+     BOYUT
+     ============================================================ */
   GL.setSize = function (W, H) {
     if (!this.ok) return;
-    const dpr = (typeof window !== 'undefined' && window.devicePixelRatio) ? Math.min(2, window.devicePixelRatio) : 1;
-    const pw = Math.max(64, Math.round(W * dpr * this.scale));
-    const ph = Math.max(64, Math.round(H * dpr * this.scale));
-    /* sahne süper örneklemeli çizilir, birleştirmede kutu filtresiyle iner:
-       kenar yumuşatma (MSAA'nın FBO'larda çalışmadığı WebGL1 için gerçek çözüm) */
-    const sw = Math.max(64, Math.round(pw * (this.ss || 1)));
-    const sh = Math.max(64, Math.round(ph * (this.ss || 1)));
-    if (this.canvas.width !== pw || this.canvas.height !== ph) {
-      this.canvas.width = pw; this.canvas.height = ph;
-    }
-    if (!this.scene || this.scene.w !== sw || this.scene.h !== sh) this._resizeTargets(sw, sh);
+    const s = this.scale || 1;
+    const w = Math.max(160, Math.round(W * s));
+    const h = Math.max(120, Math.round(H * s));
+    this.canvas.width = w;
+    this.canvas.height = h;
+    this.renderer.setSize(w, h, false);
+    this.camera.aspect = w / h;
+    this.camera.updateProjectionMatrix();
+    if (this.composer) this.composer.setSize(w, h);
+    if (this.passGrade) this.passGrade.uniforms.uRes.value.set(w, h);
+    this.pw = w; this.ph = h;
   };
 
   /* ============================================================
-     ÇİZİM
+     KARE ÇİZİMİ
      ============================================================ */
   GL.render = function (v, R) {
     if (!this.ok) return false;
     try {
-      const gl = this.gl;
-      const W = this.canvas.width, H = this.canvas.height;
-      const SW = (this.scene && this.scene.w) || W, SH = (this.scene && this.scene.h) || H;
-      const aspect = SW / SH;
-      const FOVK = (R && R.FOVK ? R.FOVK : 0.66) * (R.fovMul || 1) * (R.dynFov || 1);
-      const fy = SW / (2 * FOVK);
+      const T = this.T;
+      const cam = this.camera;
+      const w = this.world = v.world;
 
+      /* dünya değişti (yeni oyun / gece kayması) ya da geçitler açılıp
+         kapandı → ağları tazele */
+      const gatesOpen = v.gatesOpen !== false;
       if (v.world !== this.worldRef) { this.worldRef = v.world; this.invalidate(); }
-      this._updateChunks(v.px, v.py, 3);
+      else if (gatesOpen !== this._gatesOpen) { this._gatesOpen = gatesOpen; this.invalidate(); }
 
-      const eyeY = v.zc;
+      /* ---- kalite anahtarları ---- */
+      const q = (R && R.quality) || 'yuksek';
+      if (this._q !== q) {
+        this._q = q;
+        const useShadows = q !== 'performans';
+        this.renderer.shadowMap.enabled = useShadows;
+        this._noShadow = !useShadows;
+        this.passBloom.enabled = q !== 'performans';
+        this.passBloom.strength = q === 'yuksek' ? 0.42 : 0.30;
+        if (this.sun) this.sun.shadow.mapSize.set(q === 'yuksek' ? 2048 : 1024, q === 'yuksek' ? 2048 : 1024);
+        this.hemi.intensity = q === 'performans' ? 0.42 : 0.5;
+      }
+
+      /* ---- kamera ---- */
+      const FOVK = (R && R.FOVK ? R.FOVK : 0.66) * (R.fovMul || 1) * (R.dynFov || 1);
+      const hFov = 2 * Math.atan(FOVK);
+      const vFov = 2 * Math.atan(Math.tan(hFov / 2) / Math.max(0.2, cam.aspect));
+      cam.fov = Math.min(120, Math.max(25, vFov * 180 / Math.PI));
+      cam.updateProjectionMatrix();
+      const fy = (this.pw || 1) / (2 * FOVK);
       const pitchAng = Math.atan2(v.pitch || 0, fy);
-      const proj = perspective(mat4(), FOVK, aspect, 0.02, 260);
-      const view = viewMatrix(mat4(), v.px, eyeY, v.py, v.pa, pitchAng, v.roll || 0);
-      const VP = mul(mat4(), proj, view);
-      const invVP = mat4();
-      invert(invVP, VP);
+      cam.position.set(v.px, v.zc, v.py);
+      cam.rotation.set(pitchAng, Math.atan2(-Math.cos(v.pa), -Math.sin(v.pa)), -(v.roll || 0), 'YXZ');
+      cam.updateMatrixWorld();
 
-      /* ---- 1) sahne: gökyüzü + dünya + sprite'lar ---- */
-      gl.bindFramebuffer(gl.FRAMEBUFFER, this.scene.fb);
-      gl.viewport(0, 0, SW, SH);
-      gl.enable(gl.DEPTH_TEST);
-      gl.depthMask(false);
-      gl.disable(gl.BLEND);
-      gl.clearColor(0, 0, 0, 1);
-      gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-
-      const sunY = Math.max(0.06, (v.sunEl === undefined ? 0.5 : v.sunEl));
-      const sunDir = norm3(v.sunDir[0] * 0.9, sunY, v.sunDir[1] * 0.9);
-      const fcol = [v.fogColor[0] / 255, v.fogColor[1] / 255, v.fogColor[2] / 255];
-
-      /* gökyüzü */
-      {
-        const p = this.pSky;
-        gl.useProgram(p.prog);
-        gl.uniformMatrix4fv(p.u('uInvVP'), false, invVP);
-        gl.uniform3fv(p.u('uCamPos'), [v.px, eyeY, v.py]);
-        gl.uniform3fv(p.u('uSkyTop'), [v.skyTop[0] / 255, v.skyTop[1] / 255, v.skyTop[2] / 255]);
-        gl.uniform3fv(p.u('uSkyHorizon'), [v.sky[0] / 255, v.sky[1] / 255, v.sky[2] / 255]);
-        gl.uniform3fv(p.u('uSunDir'), sunDir);
-        gl.uniform3fv(p.u('uSunCol'), [(v.sunCol[0] / 255) * 0.9, (v.sunCol[1] / 255) * 0.9, (v.sunCol[2] / 255) * 0.9]);
-        gl.uniform1f(p.u('uStars'), v.stars || 0);
-        gl.uniform1f(p.u('uClouds'), v.clouds || 0);
-        gl.uniform1f(p.u('uTime'), v.time || 0);
-        gl.uniform1f(p.u('uFogDens'), v.fogDens);
-        const loc = p.a('aPos');
-        gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuf);
-        gl.enableVertexAttribArray(loc);
-        gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
-        gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
-        gl.disableVertexAttribArray(loc);
-      }
-      gl.depthMask(true);
-
-      /* dünya */
-      {
-        const p = this.pWorld;
-        gl.useProgram(p.prog);
-        gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this.texAlbedo);
-        gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, this.texNormal);
-        gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, this.texSpec);
-        gl.uniform1i(p.u('uAlbedo'), 0);
-        gl.uniform1i(p.u('uNormal'), 1);
-        gl.uniform1i(p.u('uSpec'), 2);
-        gl.uniformMatrix4fv(p.u('uVP'), false, VP);
-        gl.uniform1f(p.u('uCols'), this.atlasCols);
-        gl.uniform2f(p.u('uCell'), 1 / this.atlasCols, 1 / this.atlasRows);
-        gl.uniform3fv(p.u('uSunDir'), sunDir);
-        gl.uniform3fv(p.u('uSunCol'), [(v.sunCol[0] / 255), (v.sunCol[1] / 255), (v.sunCol[2] / 255)]);
-        gl.uniform1f(p.u('uSunAmt'), Math.max(0.05, (v.light || 0.7) * 0.85));
-        gl.uniform3f(p.u('uAmbient'), 0.115, 0.125, 0.15);
-        gl.uniform3f(p.u('uTorchCol'), 1.0, 0.84, 0.62);
-        gl.uniform1f(p.u('uTorch'), v.torch || 0);
-        gl.uniform3fv(p.u('uCamPos'), [v.px, eyeY, v.py]);
-        gl.uniform3fv(p.u('uFogCol'), fcol);
-        gl.uniform1f(p.u('uFogDens'), v.fogDens);
-        gl.uniform1f(p.u('uAmb'), 1.0);
-
-        const aPos = p.a('aPos'), aUV = p.a('aUV'), aSlot = p.a('aSlot'), aShade = p.a('aShade'), aFlags = p.a('aFlags');
-        const stride = 10 * 4;
-        gl.enableVertexAttribArray(aPos); gl.vertexAttribPointer(aPos, 3, gl.FLOAT, false, stride, 0);
-        gl.enableVertexAttribArray(aUV); gl.vertexAttribPointer(aUV, 2, gl.FLOAT, false, stride, 12);
-        gl.enableVertexAttribArray(aSlot); gl.vertexAttribPointer(aSlot, 2, gl.FLOAT, false, stride, 20);
-        gl.enableVertexAttribArray(aShade); gl.vertexAttribPointer(aShade, 2, gl.FLOAT, false, stride, 28);
-        gl.enableVertexAttribArray(aFlags); gl.vertexAttribPointer(aFlags, 1, gl.FLOAT, false, stride, 36);
-        const camF = [Math.cos(v.pa), Math.sin(v.pa)];
-        for (const key in this.chunks) {
-          const ch = this.chunks[key];
-          if (!ch.vbo || !ch.count) continue;
-          if (ch.stamp !== this.worldStamp) continue;      /* henüz kurulmadı */
-          const mx = ch.cx * CHUNK + CHUNK / 2, my = ch.cy * CHUNK + CHUNK / 2;
-          const ddx = mx - v.px, ddy = my - v.py;
-          if (ddx * ddx + ddy * ddy > 56 * 56) continue;    /* sisin ötesi */
-          const dl = Math.sqrt(ddx * ddx + ddy * ddy) || 1;
-          if ((ddx * camF[0] + ddy * camF[1]) / dl < -0.55 && dl > 40) continue;
-          gl.bindBuffer(gl.ARRAY_BUFFER, ch.vbo);
-          gl.vertexAttribPointer(aPos, 3, gl.FLOAT, false, stride, 0);
-          gl.vertexAttribPointer(aUV, 2, gl.FLOAT, false, stride, 12);
-          gl.vertexAttribPointer(aSlot, 2, gl.FLOAT, false, stride, 20);
-          gl.vertexAttribPointer(aShade, 2, gl.FLOAT, false, stride, 28);
-          gl.vertexAttribPointer(aFlags, 1, gl.FLOAT, false, stride, 36);
-          gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ch.ibo);
-          gl.drawElements(gl.TRIANGLES, ch.count, ch.big ? gl.UNSIGNED_INT : gl.UNSIGNED_SHORT, 0);
-        }
+      /* ---- sis ve gökyüzü ---- */
+      const fog = new T.Color(v.fogColor[0] / 255, v.fogColor[1] / 255, v.fogColor[2] / 255);
+      this.scene.fog.color.copy(fog);
+      this.scene.fog.density = Math.max(FOG_MIN, (v.fogDens || 0.03) * 0.85);
+      const sun3 = new T.Vector3(v.sunDir[0], Math.max(0.06, v.sunEl === undefined ? 0.5 : v.sunEl), v.sunDir[1]).normalize();
+      if (this.sky) {
+        const u = this.sky.material.uniforms;
+        u.uTop.value.setRGB(v.skyTop[0] / 255, v.skyTop[1] / 255, v.skyTop[2] / 255);
+        u.uHorizon.value.setRGB(v.sky[0] / 255, v.sky[1] / 255, v.sky[2] / 255);
+        u.uSun.value.copy(sun3);
+        u.uSunCol.value.setRGB(v.sunCol[0] / 255 * 0.9, v.sunCol[1] / 255 * 0.9, v.sunCol[2] / 255 * 0.9);
+        u.uStars.value = v.stars || 0;
+        u.uClouds.value = v.clouds || 0;
+        u.uTime.value = v.time || 0;
+        this.sky.position.set(v.px, 0, v.py);
       }
 
-      /* sprite'lar */
-      if (v.entities && v.entities.length) this._drawSprites(v, VP, sunY, fcol, R);
+      /* ---- ışıklar ---- */
+      const light = v.light === undefined ? 0.7 : v.light;
+      this.sun.color.setRGB(v.sunCol[0] / 255, v.sunCol[1] / 255, v.sunCol[2] / 255);
+      this.sun.intensity = Math.max(0.02, light * 2.3) * (this._q === 'performans' ? 0.85 : 1);
+      this.sun.position.set(v.px + sun3.x * 70, sun3.y * 70 + 12, v.py + sun3.z * 70);
+      this.sun.target.position.set(v.px, 0, v.py);
+      this.sun.target.updateMatrixWorld();
+      this.hemi.color.setRGB(v.sky[0] / 255, v.sky[1] / 255, v.sky[2] / 255);
+      this.hemi.groundColor.setRGB(fog.r * 0.55, fog.g * 0.55, fog.b * 0.55);
+      const amb = v.ambient === undefined ? 0.3 : v.ambient;
+      this.hemi.intensity = (0.42 + amb * 0.9) * (this._q === 'performans' ? 0.85 : 1);
 
-      /* ---- 2) post: parlak geçiş + bulanıklık ---- */
-      const quality = (R && R.quality) || 'yuksek';
-      const doBloom = quality !== 'performans';
-      gl.disable(gl.DEPTH_TEST);
-      gl.depthMask(false);
-      gl.disable(gl.BLEND);
-      if (doBloom) {
-        const bw = this.brightA.w, bh = this.brightA.h;
-        gl.bindFramebuffer(gl.FRAMEBUFFER, this.brightA.fb);
-        gl.viewport(0, 0, bw, bh);
-        const pb = this.pBright;
-        gl.useProgram(pb.prog);
-        gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this.scene.tex);
-        gl.uniform1i(pb.u('uTex'), 0);
-        gl.uniform1f(pb.u('uThreshold'), 0.62);
-        this._quad(pb);
-        /* yatay + dikey bulanıklık */
-        for (let pass = 0; pass < 2; pass++) {
-          const src = pass === 0 ? this.brightA : this.brightB;
-          const dst = pass === 0 ? this.brightB : this.brightA;
-          gl.bindFramebuffer(gl.FRAMEBUFFER, dst.fb);
-          gl.viewport(0, 0, dst.w, dst.h);
-          const pl = this.pBlur;
-          gl.useProgram(pl.prog);
-          gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, src.tex);
-          gl.uniform1i(pl.u('uTex'), 0);
-          gl.uniform2f(pl.u('uDir'), pass === 0 ? 1.3 / dst.w : 0, pass === 0 ? 0 : 1.3 / dst.h);
-          this._quad(pl);
-        }
+      const torchOn = (v.torch || 0) > 0.02 && this._q !== 'performans';
+      this.torch.intensity = torchOn ? v.torch * 3.4 : 0;
+      this.fill.intensity = torchOn ? v.torch * 0.7 : 0;
+      if (torchOn) {
+        const fwd = new T.Vector3(0, 0, -1).applyQuaternion(cam.quaternion);
+        this.torch.position.copy(cam.position).addScaledVector(fwd, 0.15);
+        this.torch.target.position.copy(cam.position).addScaledVector(fwd, 12);
+        this.torch.target.updateMatrixWorld();
+        this.fill.position.copy(cam.position).addScaledVector(fwd, 0.6);
       }
 
-      /* ---- 3) birleştirme (ekrana) ---- */
-      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-      gl.viewport(0, 0, W, H);
-      const pc = this.pComp;
-      gl.useProgram(pc.prog);
-      gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this.scene.tex);
-      gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, doBloom ? this.brightA.tex : this.scene.tex);
-      gl.uniform1i(pc.u('uTex'), 0);
-      gl.uniform1i(pc.u('uBloom'), 1);
-      gl.uniform1f(pc.u('uExposure'), (v.exposure === undefined ? 1.05 : v.exposure) * 1.15);
-      gl.uniform1f(pc.u('uBloomAmt'), doBloom ? clamp((v.bloom === undefined ? 0.3 : v.bloom) * 0.85, 0, 0.9) : 0);
-      gl.uniform1f(pc.u('uCA'), quality === 'yuksek' ? (v.ca === undefined ? 0.5 : v.ca) * 0.5 : 0);
-      gl.uniform1f(pc.u('uGrain'), quality === 'yuksek' ? 0.020 + (v.grain || 0) * 0.012 : 0.008);
-      gl.uniform1f(pc.u('uTime'), v.time || 0);
-      gl.uniform1f(pc.u('uVignette'), 0.34);
-      gl.uniform2f(pc.u('uRes'), SW, SH);
-      gl.uniform1f(pc.u('uSS'), this.ss || 1);
-      this._quad(pc);
-      gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, null);
-      gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, null);
+      /* ---- bölüm ağları ---- */
+      this._updateChunks(v.px, v.py, CHUNK_R);
 
-      /* ---- kendi kendini sınama: renkli bir sonda çizip geri oku ----
-         Bozuk sürücülerde kare siyah kalır; bunu ilk karede yakalayıp
-         CPU hattına düşeriz (oyuncu asla siyah ekran görmez). */
-      if (!this._probed) {
-        this._probed = true;
-        try {
-          const want = [64, 128, 192];
-          gl.bindFramebuffer(gl.FRAMEBUFFER, this.scene.fb);
-          gl.viewport(0, 0, 4, 4);
-          gl.clearColor(want[0] / 255, want[1] / 255, want[2] / 255, 1);
-          gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-          const px = new Uint8Array(4);
-          gl.readPixels(1, 1, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
-          const d = Math.abs(px[0] - want[0]) + Math.abs(px[1] - want[1]) + Math.abs(px[2] - want[2]);
-          gl.clearColor(0, 0, 0, 1);
-          if (gl.getError() !== gl.NO_ERROR || d > 24) throw new Error('GPU geri okuma tutarsız (sapma ' + d + ')');
-        } catch (e) {
-          if (e && e.message && /geri okuma/.test(e.message)) { gl.clearColor(0, 0, 0, 1); throw e; }
-        }
+      /* ---- varlıklar ---- */
+      this._syncEntities(v);
+      if (this.sky) this.sky.position.set(v.px, 0, v.py);
+
+      /* ---- son katman değerleri ---- */
+      const g = this.passGrade.uniforms;
+      g.uExposure.value = (v.exposure === undefined ? 1.03 : v.exposure) * 1.06;
+      g.uCA.value = (this._q === 'yuksek') ? (v.ca === undefined ? 0.5 : v.ca) * 0.55 : 0;
+      g.uGrain.value = (this._q === 'yuksek') ? 0.016 + (v.grain || 0) * 0.010 : 0.007;
+      g.uTime.value = v.time || 0;
+      g.uVignette.value = 0.30;
+      if (this.passBloom.enabled) {
+        this.passBloom.strength = Math.min(1.0, 0.22 + (v.bloom === undefined ? 0.25 : v.bloom) * 0.9);
+      }
+
+      /* ---- çizim ---- */
+      this.composer.render();
+
+      /* ---- ilk kare denetimi: tamamen siyah kare → CPU'ya dön ---- */
+      if (!this._checked) {
+        this._checked = 1;
+        const gl = this.gl;
+        const cw = this.canvas.width, chh = this.canvas.height;
+        const px = new Uint8Array(4 * 64 * 36);
+        gl.readPixels(Math.max(0, (cw >> 1) - 32), Math.max(0, (chh >> 1) - 18), 64, 36, gl.RGBA, gl.UNSIGNED_BYTE, px);
+        let sum = 0;
+        for (let i = 0; i < px.length; i += 4) sum += px[i] + px[i + 1] + px[i + 2];
+        const mean = sum / (64 * 36 * 3);
+        this.lastMean = mean;
+        if (mean < 0.35) throw new Error('GPU karesi boş (ortalama ' + mean.toFixed(2) + ')');
       }
       return true;
     } catch (e) {
-      /* GPU hatası: CPU'ya düş */
       this.ok = false;
       this.status = 'CPU (çizim hatası: ' + (e && e.message ? e.message : e) + ')';
-      if (MV.logMsg) MV.logMsg('[GL] ' + this.status);
+      log(this.status);
       try { if (this.canvas) this.canvas.style.display = 'none'; } catch (e2) { }
       return false;
     }
   };
-
-  GL._quad = function (p) {
-    const gl = this.gl;
-    const loc = p.a('aPos');
-    gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuf);
-    gl.enableVertexAttribArray(loc);
-    gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
-    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
-    gl.disableVertexAttribArray(loc);
-  };
-
-  /* ---------- sprite'lar (billboard, köşe başına genişletilmiş) ---------- */
-  GL._drawSprites = function (v, VP, sunY, fcol, R) {
-    const gl = this.gl;
-    const rects = this.spriteRects;
-    if (!rects) return;
-    const list = v.entities;
-    const MAXV = 8000;                                   // 8000 köşe = 2000 sprite
-    const data = this._sprData || (this._sprData = new Float32Array(MAXV * 13));
-    const idx = this._sprIdx || (this._sprIdx = (() => {
-      const a = new Uint16Array(MAXV / 4 * 6 + 6);
-      for (let i = 0; i < MAXV / 4; i++) {
-        const b = i * 4, o = i * 6;
-        a[o] = b; a[o + 1] = b + 1; a[o + 2] = b + 2;
-        a[o + 3] = b + 2; a[o + 4] = b + 1; a[o + 5] = b + 3;
-      }
-      return a;
-    })());
-    const sw = this.texSprites.width || 1024;
-    const corners = [[-0.5, 0], [0.5, 0], [-0.5, 1], [0.5, 1]];
-    let n = 0, vcount = 0;
-    for (let k = 0; k < list.length; k++) {
-      const e = list[k];
-      let r = rects[e.sprite];
-      if (!r) continue;
-      if (Array.isArray(r)) {
-        const fn = r.length;
-        let fi = e.frame;
-        if (fi === undefined || fi === null) fi = Math.floor((e.anim || 0) * 6) % fn;
-        fi = ((fi % fn) + fn) % fn;
-        r = r[fi];
-        if (!r) continue;
-      }
-      if (e.alpha !== undefined && e.alpha < 0.02) continue;
-      if (vcount + 4 > MAXV) break;
-      const tint = (e.tint === undefined ? 1 : e.tint) + (e.glow || 0) * 0.8;
-      const alpha = e.alpha === undefined ? 1 : e.alpha;
-      const yOff = e.yOff || 0;
-      const w = e.w || 1, h = e.h || 1;
-      const u0 = r.x / sw, v0 = (r.y + r.h) / sw, u1 = (r.x + r.w) / sw, v1 = r.y / sw;
-      for (let c = 0; c < 4; c++) {
-        const o = (vcount + c) * 13;
-        data[o] = corners[c][0]; data[o + 1] = corners[c][1];
-        data[o + 2] = e.x; data[o + 3] = yOff; data[o + 4] = e.y;
-        data[o + 5] = w; data[o + 6] = h;
-        data[o + 7] = u0; data[o + 8] = v0; data[o + 9] = u1; data[o + 10] = v1;
-        data[o + 11] = tint; data[o + 12] = alpha;
-      }
-      n++; vcount += 4;
-    }
-    if (!n) return;
-    const p = this.pSprite;
-    gl.useProgram(p.prog);
-    gl.enable(gl.BLEND);
-    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
-    gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this.texSprites);
-    gl.uniform1i(p.u('uAtlas'), 0);
-    gl.uniformMatrix4fv(p.u('uVP'), false, VP);
-    gl.uniform3fv(p.u('uCamPos'), [v.px, v.zc, v.py]);
-    gl.uniform3fv(p.u('uFogCol'), fcol);
-    gl.uniform1f(p.u('uFogDens'), v.fogDens);
-    gl.uniform1f(p.u('uLight'), (v.light || 0.7));
-    gl.uniform3f(p.u('uAmbient'), 0.30, 0.31, 0.34);
-    gl.uniform3f(p.u('uTorchCol'), 1.0, 0.85, 0.62);
-    gl.uniform1f(p.u('uTorch'), v.torch || 0);
-    const stride = 13 * 4;
-    const aPos = p.a('aPos'), aCenter = p.a('aCenter'), aSize = p.a('aSize'), aUV = p.a('aUV'), aTint = p.a('aTint');
-    if (!this._spriteVBO) this._spriteVBO = gl.createBuffer();
-    gl.bindBuffer(gl.ARRAY_BUFFER, this._spriteVBO);
-    gl.bufferData(gl.ARRAY_BUFFER, data.subarray(0, vcount * 13), gl.DYNAMIC_DRAW);
-    gl.enableVertexAttribArray(aPos); gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, stride, 0);
-    gl.enableVertexAttribArray(aCenter); gl.vertexAttribPointer(aCenter, 3, gl.FLOAT, false, stride, 8);
-    gl.enableVertexAttribArray(aSize); gl.vertexAttribPointer(aSize, 2, gl.FLOAT, false, stride, 20);
-    gl.enableVertexAttribArray(aUV); gl.vertexAttribPointer(aUV, 4, gl.FLOAT, false, stride, 28);
-    gl.enableVertexAttribArray(aTint); gl.vertexAttribPointer(aTint, 2, gl.FLOAT, false, stride, 44);
-    if (!this._sprIBO) this._sprIBO = gl.createBuffer();
-    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this._sprIBO);
-    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, idx, gl.STATIC_DRAW);
-    gl.drawElements(gl.TRIANGLES, n * 6, gl.UNSIGNED_SHORT, 0);
-    gl.disable(gl.BLEND);
-  };
-
-  /* ---------- 4x4 ters (standart kramer) ---------- */
-  function invert(out, m) {
-    const a00 = m[0], a01 = m[1], a02 = m[2], a03 = m[3];
-    const a10 = m[4], a11 = m[5], a12 = m[6], a13 = m[7];
-    const a20 = m[8], a21 = m[9], a22 = m[10], a23 = m[11];
-    const a30 = m[12], a31 = m[13], a32 = m[14], a33 = m[15];
-    const b00 = a00 * a11 - a01 * a10, b01 = a00 * a12 - a02 * a10, b02 = a00 * a13 - a03 * a10;
-    const b03 = a01 * a12 - a02 * a11, b04 = a01 * a13 - a03 * a11, b05 = a02 * a13 - a03 * a12;
-    const b06 = a20 * a31 - a21 * a30, b07 = a20 * a32 - a22 * a30, b08 = a20 * a33 - a23 * a30;
-    const b09 = a21 * a32 - a22 * a31, b10 = a21 * a33 - a23 * a31, b11 = a22 * a33 - a23 * a32;
-    let det = b00 * b11 - b01 * b10 + b02 * b09 + b03 * b08 - b04 * b07 + b05 * b06;
-    if (!det) return out;
-    det = 1 / det;
-    out[0] = (a11 * b11 - a12 * b10 + a13 * b09) * det;
-    out[1] = (a02 * b10 - a01 * b11 - a03 * b09) * det;
-    out[2] = (a31 * b05 - a32 * b04 + a33 * b03) * det;
-    out[3] = (a22 * b04 - a21 * b05 - a23 * b03) * det;
-    out[4] = (a12 * b08 - a10 * b11 - a13 * b07) * det;
-    out[5] = (a00 * b11 - a02 * b08 + a03 * b07) * det;
-    out[6] = (a32 * b02 - a30 * b05 - a33 * b01) * det;
-    out[7] = (a20 * b05 - a22 * b02 + a23 * b01) * det;
-    out[8] = (a10 * b10 - a11 * b08 + a13 * b06) * det;
-    out[9] = (a01 * b08 - a00 * b10 - a03 * b06) * det;
-    out[10] = (a30 * b04 - a31 * b02 + a33 * b00) * det;
-    out[11] = (a21 * b02 - a20 * b04 - a23 * b00) * det;
-    out[12] = (a11 * b07 - a10 * b09 - a12 * b06) * det;
-    out[13] = (a00 * b09 - a01 * b07 + a02 * b06) * det;
-    out[14] = (a31 * b01 - a30 * b03 - a32 * b00) * det;
-    out[15] = (a20 * b03 - a21 * b01 + a22 * b00) * det;
-    return out;
-  }
-  function norm3(x, y, z) {
-    const l = Math.sqrt(x * x + y * y + z * z) || 1;
-    return [x / l, y / l, z / l];
-  }
-
-  /* test kancası: projeksiyon/bakış matematiği dışarıdan doğrulanabilsin */
-  GL._math = { perspective: perspective, viewMatrix: viewMatrix, mul: mul, invert: invert, mat4: mat4 };
 
   MV.GL = GL;
 })(MV);
