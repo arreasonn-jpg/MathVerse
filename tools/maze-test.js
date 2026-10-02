@@ -3,9 +3,9 @@ const fs = require('fs');
 const path = require('path');
 const root = path.join(__dirname, '..');
 global.MV = {};
-new Function(fs.readFileSync(path.join(root, 'js/00-core.js'), 'utf8'))();
+new Function(fs.readFileSync(path.join(root, 'app/js/00-core.js'), 'utf8'))();
 const MV = global.MV;
-new Function(fs.readFileSync(path.join(root, 'js/20-maze.js'), 'utf8'))();
+new Function(fs.readFileSync(path.join(root, 'app/js/20-maze.js'), 'utf8'))();
 
 function bfs(w, sx, sy, gatesOpen, allowVoid) {
   const seen = new Uint8Array(w.W * w.H);

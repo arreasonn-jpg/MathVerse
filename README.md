@@ -1,8 +1,11 @@
 # LABİRENT PROTOKOLÜ
 
-**Inferno Protocol görselliğinde, Labirent: Ölümcül Kaçış mantığında bir hayatta kalma-korku oyunu.**
-Tarayıcıda çalışan, tek bir HTML sayfası + saf JavaScript ile yazılmış, birinci şahıs (FPS) raycast motoru.
-Hiçbir harici görsel/ses dosyası yok — tüm dokular, sprite'lar ve sesler çalışma anında kodla üretilir.
+**Inferno Protocol görselliğinde, Labirent: Ölümcül Kaçış mantığında bir PC masaüstü hayatta kalma-korku oyunu.**
+
+Electron ile paketlenmiş gerçek bir Windows / macOS / Linux uygulamasıdır — tarayıcı gerekmez.
+Kurulum için hazır **NSIS kurulum dosyası**, **taşınabilir (portable) exe**, **dmg**, **AppImage** ve **.deb**
+hedefleri üretir. Oyunun tamamı tek bir motor içinde kodla üretilir: hiçbir harici görsel/ses
+dosyası yoktur, tüm dokular, sprite'lar, sesler ve arayüz çalışma anında prosedürel olarak oluşturulur.
 
 ![Kayran](docs/kayran.png)
 
@@ -21,107 +24,134 @@ Hiçbir harici görsel/ses dosyası yok — tüm dokular, sprite'lar ve sesler �
 | ![Grievers](docs/griever.png) | ![Rune](docs/rune.png) |
 | Grievers — koridorda avcı | Sektör duvarına kazınmış rune taşı (π basamağı) |
 
-Doku atlası: [`docs/doku-atlasi.png`](docs/doku-atlasi.png) — tüm duvarlar ve sprite'lar `js/10-textures.js` içinde kodla üretilir.
+Doku atlası: [`docs/doku-atlasi.png`](docs/doku-atlasi.png) — tüm dokular `app/js/10-textures.js` içinde kodla üretilir.
+
+## Masaüstü uygulamasının getirdikleri
+
+| | |
+|---|---|
+| 🖼️ **Gerçek pencere** | Pencere boyutu/konumu hatırlanır, tam ekran (F11), minimum 1024×640 |
+| 💾 **Dosya tabanlı kayıt** | 4 slot (`slot-0…3.json`) — 0 numara otomatik kayıt; her slotta gün, evre, rune sayısı, can ve tarih görünür |
+| ⚙️ **Kalıcı ayarlar** | `settings.json`: grafik kalitesi (yüksek/orta/performans), ses, fare hassasiyeti, ters Y, ekran sarsıntısı, odak kaybında duraklat |
+| 📸 **Ekran görüntüsü** | F12 → `Resimler/Labirent Protokolu/labirent-<tarih>.png`, çekimden önce HUD gizlenir |
+| 🧭 **Yerel Türkçe menü** | Oyun / Görünüm / Ses / Yardım; Ctrl+S kaydet, Ctrl+O yükle, F12 ekran görüntüsü, F11 tam ekran |
+| 📝 **Günlük ve hata yakalama** | `labirent.log`, yakalanmayan hatalar için çökme penceresi |
+| 🎮 **Oyun kolu** | Xbox / DualSense / 8BitDo; takıldığında otomatik algılanır (bkz. Kontroller) |
+| 🖥️ **Tek örnek kilidi** | İkinci kez açılırsa var olan pencere öne gelir |
 
 ## Kurulum / Çalıştırma
 
-Sunucu gerekmez; `index.html` dosyasını tarayıcıda açmak yeterlidir:
+### Hazır paket (kullanıcı)
+
+Kurulum dosyasını çalıştır, masaüstü kısayolundan başlat. Ayrıntılı adımlar, sistem gereksinimleri ve
+dosya konumları için: **[docs/KURULUM.md](docs/KURULUM.md)**
+
+| Platform | Dosya | Not |
+|---|---|---|
+| Windows | `Labirent Protokolu Setup x.y.z.exe` | NSIS kurulumu, klasör + kısayol seçimi |
+| Windows | `Labirent Protokolu x.y.z.exe` | Kurulumsuz taşınabilir sürüm (USB'den çalışır) |
+| macOS | `Labirent Protokolu-x.y.z.dmg` | Intel + Apple Silicon |
+| Linux | `Labirent Protokolu-x.y.z.AppImage` / `.deb` | `chmod +x` sonrası çift tıkla, ya da `dpkg -i` |
+
+### Kaynaktan çalıştırma (geliştirici)
 
 ```bash
-python3 -m http.server 8080     # sonra http://localhost:8080
+npm install          # Electron + electron-builder indirir (ilk seferde ~200 MB)
+npm start            # uygulamayı açar (npm run dev → geliştirme kipi: konsol + DevTools)
 ```
 
-Klavye + fare gerekir. Başlamak için ekrana tıkla (fare kilidi alınır), `ESC` ile menü.
+### Paket üretme
+
+```bash
+npm run dist:win     # NSIS kurulum + taşınabilir exe  → dist/
+npm run dist:mac     # dmg (x64 + arm64)               → dist/
+npm run dist:linux   # AppImage + deb                  → dist/
+npm run dist         # bulunduğun platform için hepsi
+npm run icons        # build/icon.png|ico|icns + docs/ikon.png yeniden üretir
+```
+
+Paket içeriği `package.json → build.files` ile sınırlıdır: yalnızca `app/`, `electron/` ve simgeler girer;
+`tools/`, `docs/` ve `dist/` pakete dahil edilmez.
+
+## Testler
+
+Tarayıcı ve masaüstü katmanı, ayrı ayrı, bağımlılık olmadan koşturulur:
+
+```bash
+npm run verify        # hepsi: labirent + masaüstü katmanı + oyun (iki kip) + görsel render
+npm run verify:game   # oyun mantığı (tarayıcı + masaüstü kayıt/ayar kipi)
+npm run verify:desktop# electron/main.js: menü, IPC, kayıt dosyaları, ayarlar, çıkış akışı
+node tools/render-real.js   # 18 sahne görüntüsünü tools/out/ içine çizer (görsel kontrol)
+```
+
+`tools/desktop-test.js` gerçek `electron/main.js` dosyasını sahte bir Electron çalışma zamanıyla
+koşturur ve gerçek dosya sistemine yazar — bu yüzden paketlenmiş uygulamanın davranışını
+Electron binary'si olmadan da doğrular.
 
 ## Kontroller
 
 | Tuş | İşlev |
 |---|---|
 | `W A S D` | Yürü / yan adım |
-| `SHIFT` | Koş (nefes tüketir, gürültü yapar) |
-| `C` | Eğil (sessiz, Grievers daha zor bulur) |
-| `FARE` | Bakış (yukarı/aşağı dahil) |
-| `E` | Etkileşim (Kutu, rune taşı, baraka, kovan, kapak) |
-| `F` | Fener aç/kapa (pille çalışır, seni görünür yapar) |
-| `1 2 3 4` | Araç seç: FENER / İZLEYİCİ / MIZRAK / SARF |
-| `Q` veya `SOL TIK` | Aracı kullan / mızrak savur |
+| `SHIFT` | Koş (dayanıklılık harcar) |
+| `C` | Eğil (sessiz yürüyüş) |
+| `FARE` | Bakış |
+| `E` | Etkileşim (kutu, geçit, rune, baraka, kovan) |
+| `F` | Fener (pilli, seni görünür yapar) |
+| `1 2 3 4` | Araç seç (mızrak, tuzak, izleyici, işaret fişeği) |
+| `Q` / `SOL TIK` | Aracı kullan / saldır |
 | `M` | Harita (yalnızca yürüdüğün yerleri hatırlar) |
-| `TAB` | Günlük (π dizisi, çanta, istatistik) |
-| `ESC` | Duraklat (kaydet, ses, görüntü kalitesi) |
+| `TAB` | Günlük |
+| `ESC` | Duraklat / geri |
+| `F11` | Tam ekran · `F12` Ekran görüntüsü · `Ctrl+S` Kaydet · `Ctrl+O` Yükle |
 
-## Oyun Akışı
+**Oyun kolu:** sol çubuk yürür, sağ çubuk bakar, çubuğu sonuna kadar itmek koşar; `A` etkileşim,
+`B` fener, `X` mızrak, `Y` araç kullan, `LB/RB` araç değiştir, `LT` eğil, `RT` saldırı,
+`BACK` harita, `START` duraklat.
 
-1. **Kayran'ı öğren.** Kutu bir üretim terminalidir; malzemeden fener, izleyici, mızrak, halat üretir.
-   Arşiv tabletini oku → iki kural öğrenilir: *geçitler alacakaranlıkta kapanır*, *duvarlar her gece kayar*.
-2. **8 rune taşını bul.** Her taşta π dizisinin bir basamağı ve **okunma sırası** kazınmıştır.
-   Dizi toplandığında çıkış kodu: `3 1 4 1 5 9 2 6`.
-3. **Kovandan anahtarı al.** Dış kuşaktaki Griever yuvasına halatla inilir (uyandırdığın muhafıza dikkat).
-4. **Çıkış kapağını aç.** Dış kuşaktaki kapağa 8 haneli kodu gir. 3 yanlış deneme Grievers'i uyandırır.
-5. **Kaç.** Beyaz ışık, deney raporu, bölüm 2 verisi.
+## Oynanış
 
-### Ölüm sebepleri
+1. **Kayran'da uyan.** Kutu seni bırakır; bir gün önce kimse hatırlamaz.
+2. **Gündüz: koş.** 4 geçit gün boyu açıktır. 8 sektörde 8 rune taşı vardır; her rune π'nin bir
+   basamağını taşır. 240 saniye gündüz, ardından 120 saniye gece.
+3. **Gece: saklan.** Geçitler kapanır, duvarlar yer değiştirir, Grievers avlanır. Fener sınırlıdır,
+   iğne yaraları zehirler, kanama can götürür.
+4. **Üretim.** Griever parçalarını barakada birleştir: mızrak, tuzak, izleyici, işaret fişeği.
+5. **Kod.** 8 sayıyı rune sırasına göre gir (π'nin ilk 8 basamağı) ve kapağı aç → kaç.
+6. **7 gün.** Gün sayısı ilerledikçe gece uzar, Grievers çoğalır. Hata affedilmez.
 
-Grievers iğnesi (zehir), açlık, gece dışarıda donma, uçuruma düşme (WICKED seni geri getirir ama ağır bedelle),
-7. günü görememek (protokol temizliği).
-
-## Sistemler
-
-- **Geçitler**: gün doğumunda açılır, alacakaranlıkta kapanır. Gece dışarıda kalan, av olur — sinematik mantığın tamamı bu kurala bağlı.
-- **Kaydırma (Shifting)**: her yeni günde iç labirent kuşağı yeni tohumla yeniden üretilir (~2.300 hücre yer değiştirir).
-  Kayran, geçitler, rune sırası ve sektör düzeni sabit kalır — oyuncu yönünü kaybeder ama hikâye ilerler.
-- **Böcek Bıçakları**: seni görür → tarar → WICKED'e konum bildirir → en yakın iki Grievers peşine düşer. Öldürülebilir; çaldıklarını geri bırakır.
-- **Grievers**: BFS akış alanı ile gerçek yol bulur, görüş hattı + gürültü + gece çarpanı ile avlanır, koridor köşelerine takılmaz.
-  Mızrak onları sersemletir, 4 isabet etkisiz bırakır (kovan muhafızı 10 isabet).
-- **Uçurum**: labirentin dış sınırı. İki dar kanal dış kuşağa geçit verir (biri ızgara köprüdür, gürültü yapar).
-- **Üretim**: lif, çelik, reçine, konserve, pil, serum, WICKED anahtarı.
-- **Kayıt**: her 20 saniyede ve olay bazlı olarak `localStorage`'a yazılır (süreç devam edebilir).
-
-## Teknik
-
-- `js/30-render.js` — yazılım raycaster: DDA duvar izleme, gerçek zemin izdüşümü, değişken duvar yükseklikleri,
-  mesafe sisine göre renk karışımı, fener ışığı, sprite derinlik tamponu, baş sallanması (bob).
-- `js/10-textures.js` — 19 doku + 8 rune taşı + 22 sprite, hepsi `fbm`/`cel` gürültüsü ve canvas çizimleriyle üretilir.
-- `js/20-maze.js` — Kayran, halka yolu, 4 geçit, sektör duvarları, DFS labirenti, örgüleme, bulvarlar,
-  kanallar, rune yerleşimi, gizli geçitler ve kaydırma algoritması (dağıtılmış çekirdek, `docs/`'a bakınız).
-- `js/50-ai.js` — hücre merkezli BFS yol takibi (duvara takılmaz), görüş hattı denetimi, devriye/hedef akışı.
-- `js/40-audio.js` — WebAudio: döngüsel gürültü + filtre + LFO ile prosedürel ortam sesi, eşzamanlı tehdit uğultusu.
-- Kare bütçesi: 240×135'te ~2 ms, 480×270'te ~5 ms (yazılım gerçekleyiciyle ölçüldü). Görüntü kalitesi menüden değiştirilebilir.
-
-## Test / doğrulama araçları
-
-Tarayıcı olmadan da tüm mantık ve görüntü doğrulanabilir:
-
-```bash
-node tools/maze-test.js      # labirent: bağlantısallık, rune/çıkış erişimi, gece kapanması, kaydırma
-node tools/smoke-test.js     # sahte DOM ile 4000+ kare koşu, tüm arayüz ekranları, kayıt/yükleme, kaçış
-node tools/render-real.js    # gerçek raycast karelerini tools/out/*.png olarak yazar (görsel denetim)
-```
-
-`tools/softcanvas.js` küçük bir yazılım Canvas2D gerçekleyicisidir (yol dolgusu, gradyan, bitmap yazı);
-`tools/png.js` zlib ile PNG kodlar. Bu sayede motorun çıktısı CI'da bile PNG olarak incelenebilir.
+Kayıtlar `%APPDATA%/LABİRENT PROTOKOLÜ/saves/` (Windows), `~/Library/Application Support/LABİRENT PROTOKOLÜ/saves/`
+(macOS) ve `~/.config/LABİRENT PROTOKOLÜ/saves/` (Linux) altında tutulur.
 
 ## Dosya düzeni
 
 ```
-index.html            giriş noktası
-css/style.css         HUD, CRT katmanları, menüler
-js/00-core.js         rastgelelik, gürültü, renk, kayıt
-js/10-textures.js     prosedürel dokular ve sprite'lar
-js/20-maze.js         labirent dünyası + kaydırma
-js/30-render.js       raycaster
-js/40-audio.js        prosedürel ses
-js/50-ai.js           Böcek Bıçağı + Grievers
-js/60-game.js         oyun çekirdeği (gün/gece, geçitler, görevler, üretim, savaş)
-js/70-ui.js           HUD, harita, günlük, menüler
-tools/                test ve görsel doğrulama araçları
+app/                 oyunun kendisi (Electron renderer'ı — tek başına da açılabilir)
+  index.html         giriş noktası, tüm betikleri sırayla yükler
+  css/style.css      Kafka-vari arayüz, CRT/hayalet efektleri
+  js/00-core.js      çekirdek: yapılandırma, matematik, ses/girdi katmanı
+  js/05-desktop.js   masaüstü köprüsü: kayıt/ayar/kepenk API'si + tarayıcı yedeği
+  js/10-textures.js  tüm dokular ve sprite'lar (kodla üretilir)
+  js/20-maze.js      labirent üretimi, sektörler, geçitler, gece kaydırması
+  js/30-render.js    raycast moturu (doku, sis, sprite, aydınlatma)
+  js/40-audio.js     prosedürel WebAudio sesleri
+  js/50-ai.js        Grievers ve Böcek Bıçakları
+  js/60-game.js      oyun döngüsü, oyuncu, kayıt/yükleme, masaüstü olayları
+  js/70-ui.js        HUD, modaller, harita, günlük, ayarlar, kayıt slotları
+electron/main.js     ana süreç: pencere, menü, IPC, kayıt dosyaları, ekran görüntüsü, günlük
+electron/preload.js  güvenli köprü (contextIsolation, nodeIntegration kapalı)
+tools/               testler + ikon üreteci (pakete girmez)
+build/               uygulama simgeleri (.png/.ico/.icns)
+docs/                ekran görüntüleri ve kurulum kılavuzu
 ```
 
-## Filmden alınan mantık, oyunun kendi kararları
+## Teknik notlar
 
-Filmde geçitler her akşam kapanır ve kimse geri dönmez; duvarlar gece yer değiştirir; Grievers geceleri avlanır;
-kod ancak labirentin bölümlerindeki harfler/sayılarla çözülür. Bu oyunda:
-
-- Kod, filmin ruhuna uygun olarak öznelerin çocukluktan bildiği bir sabitten — **π** — türetildi ve
-  WICKED'in kendisi arşivde bunu açık ediyor.
-- Uçurum, filmin sonundaki kaçış hattına gönderme olarak iki dar kanalla geçilebilir.
-- Böcek Bıçakları "casus" rolünde oynanabilir bir tehdit hâline getirildi: eşya çalarlar, konumunu bildirirler.
+- **Güvenlik:** `contextIsolation: true`, `nodeIntegration: false`, `sandbox` açık; renderer'a yalnızca
+  `window.desktopAPI` beyaz listesi açılır. Harici bağlantı yok, oyun tamamen çevrimdışıdır.
+- **Motor:** Birinci şahıs raycast (DDA) motoru — doku eşlemeli duvarlar, sprite'lar, zemin/tavan gölgesi,
+  sis ve fener konisi. Sabit adımlı fizik, kare bağımsız hız.
+- **Yer değiştiren duvarlar:** her gece `20-maze.js` sektör bloklarını yeniden karar; oyuncu dışarıdaysa
+  geçit kapıları ve uçurum çeperi korunur.
+- **Görünürlük hilesi yok:** Gece Grievers görüş mesafesi fener durumuna, koşu sesine ve eğilme
+  durumuna göre hesaplanır; griever uğultusu mesafeye göre stereo konumlanır.

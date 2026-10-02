@@ -9,6 +9,8 @@
 
   const R = {
     canvas: null, ctx: null, W: 0, H: 0, SS: 2,
+    fovMul: 1.0,                     // görüş alanı çarpanı (ayarlardan)
+    _fov: 0.66,
     img: null, buf32: null, zbuf: null,
     texData: { walls: [], variant: [], sprites: {} },
     FOVK: 0.66,
@@ -68,7 +70,8 @@
       const px = v.px, py = v.py, pa = v.pa;
       const zc = v.zc, pitch = v.pitch || 0;
       const light = v.light, torch = v.torch;
-      const FOVK = this.FOVK;
+      const FOVK = this.FOVK * (this.fovMul || 1);
+      this._fov = FOVK;
       const fx = W / (2 * FOVK), fy = fx;
       const horizon = H * 0.5 + pitch;
       const dirX = Math.cos(pa), dirY = Math.sin(pa);
@@ -212,7 +215,8 @@
     castSprites(buf, zb, W, H, horizon, px, py, dirX, dirY, planeX, planeY, zc, fy, light, torch, fogR, fogG, fogB, fogD, v) {
       const list = v.entities;
       if (!list.length) return;
-      const fx = W / (2 * this.FOVK);
+      const FOVK = this._fov || this.FOVK;
+      const fx = W / (2 * FOVK);
       const invDet = 1 / (planeX * dirY - dirX * planeY);
       const order = [];
       for (const e of list) {
@@ -228,7 +232,7 @@
         if (tY < 0.22) continue;
         const sd = sprites[e.sprite];
         if (!sd || !sd.data) continue;
-        const scrX = (W / 2) * (1 + (tX / tY) / this.FOVK);
+        const scrX = (W / 2) * (1 + (tX / tY) / FOVK);
         const sw = (fx * (e.w || 1)) / tY;
         const sh = (fy * (e.h || 1)) / tY;
         if (sw < 0.6 || sh < 0.6) continue;

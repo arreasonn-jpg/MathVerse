@@ -4,7 +4,7 @@ const fs = require('fs');
 const soft = require('./softcanvas');
 const { writePNG } = require('./png');
 
-/* ---------- sahte DOM (gerçek canvas'larla) ---------- */
+/* ---------- sahte ortam (gerçek canvas'larla) ---------- */
 const elements = {};
 function makeDiv(id) {
   const d = {
@@ -27,8 +27,10 @@ global.document = {
   readyState: 'complete',
   createElement: (t) => (t === 'canvas' ? soft.makeCanvas(300, 150) : makeDiv()),
   getElementById: byId, addEventListener() { }, removeEventListener() { },
-  pointerLockElement: null, body: makeDiv('body')
+  pointerLockElement: null, body: makeDiv('body'),
+  documentElement: { setAttribute() { }, getAttribute() { return null; }, style: {} }
 };
+global.navigator = { userAgent: 'NodeTest' };
 global.window = { addEventListener() { }, removeEventListener() { }, matchMedia: () => ({ matches: true }), requestPointerLock() { } };
 global.performance = { now: () => Date.now() };
 global.requestAnimationFrame = () => 0;
@@ -37,8 +39,8 @@ global.localStorage = { getItem: (k) => (k in storage ? storage[k] : null), setI
 
 const root = path.join(__dirname, '..');
 global.MV = {};
-for (const f of ['00-core.js', '10-textures.js', '20-maze.js', '30-render.js', '40-audio.js', '50-ai.js', '60-game.js', '70-ui.js']) {
-  new Function(fs.readFileSync(path.join(root, 'js', f), 'utf8'))();
+for (const f of ['00-core.js', '05-desktop.js', '10-textures.js', '20-maze.js', '30-render.js', '40-audio.js', '50-ai.js', '60-game.js', '70-ui.js']) {
+  new Function(fs.readFileSync(path.join(root, 'app', 'js', f), 'utf8'))();
 }
 const MV = global.MV, G = MV.Game, UI = MV.UI;
 

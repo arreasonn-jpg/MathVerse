@@ -286,6 +286,49 @@ body{
 }
 .wicked{font-size:10px;letter-spacing:.5em;color:var(--cyan-dim)}
 
+/* FPS sayacı */
+#fps{
+  position:absolute;right:14px;top:calc(14px + 152px);font-size:10px;letter-spacing:.08em;
+  color:var(--green);opacity:.8;text-shadow:0 0 8px #000;background:rgba(0,0,0,.45);
+  padding:2px 6px;border:1px solid rgba(141,255,122,.2)
+}
+
+/* kayıt/ayar satırları */
+.savebar{
+  display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;
+  border:1px solid rgba(122,164,140,.22);background:rgba(0,0,0,.35);
+  padding:8px 10px;margin:12px 0 6px;font-size:11px
+}
+.savebar .k{color:var(--amber-dim);letter-spacing:.2em;margin-right:6px}
+.slotList{display:flex;flex-direction:column;gap:0}
+.slotRow{
+  display:flex;align-items:center;justify-content:space-between;gap:14px;
+  border-bottom:1px solid rgba(122,164,140,.16);padding:11px 2px
+}
+.slotRow.empty{opacity:.75}
+.slotRow .sr-info{font-size:11px;line-height:1.55;min-width:0}
+.slotRow .sr-name{color:var(--txt);letter-spacing:.16em;font-size:12px}
+.slotRow .sr-meta{color:var(--txt-dim);font-size:10px}
+.slotRow .sr-actions{display:flex;align-items:center;gap:7px;flex-shrink:0}
+.setRow{
+  display:flex;align-items:center;justify-content:space-between;gap:14px;
+  border-bottom:1px solid rgba(122,164,140,.16);padding:9px 2px
+}
+.setRow .sr-info{font-size:11px;line-height:1.5}
+.setRow .sr-name{color:var(--txt);letter-spacing:.14em}
+.setRow .sr-meta{color:var(--txt-dim);font-size:10px}
+.setRow .sr-actions{display:flex;align-items:center;gap:7px}
+.setVal{
+  min-width:92px;text-align:center;color:var(--amber);font-size:12px;letter-spacing:.1em;
+  text-shadow:0 0 10px rgba(255,179,71,.35)
+}
+.setRow .btn{padding:6px 11px;font-size:13px;line-height:1}
+
+/* masaüstü sürümünde imleç ve seçim */
+html[data-platform="masaustu"] body{cursor:default}
+html[data-platform="masaustu"] #view{cursor:crosshair}
+html[data-platform="masaustu"] ::selection{background:rgba(255,179,71,.25)}
+
 #boot-warn{
   position:absolute;inset:0;z-index:40;display:flex;align-items:center;justify-content:center;
   background:#000;color:var(--amber);font-size:13px;text-align:center;letter-spacing:.1em;line-height:2

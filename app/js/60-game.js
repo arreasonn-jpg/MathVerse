@@ -69,7 +69,12 @@
     tool: 0, torchCharge: 100, hasKey: false, hiveOpen: false, hatchCode: '', codeOk: false,
     msgQueue: [], lastSafe: { x: 0, y: 0 }, falling: 0, fear: 0, music: 0,
     lastHeart: 0, stepAcc: 0, meta: { runs: 1, kills: 0, deaths: 0, time: 0, sections: 0 },
-    flags: {}, cinematic: null, seed: 1, saveT: 0, hourAnnounced: false
+    flags: {}, cinematic: null, seed: 1, saveT: 0, hourAnnounced: false,
+    /* masaüstü ayarları */
+    sensitivity: 1.0, invertY: false, shake: true, settings: null,
+    /* oyun kolu */
+    pad: null, padPrev: {}, padMove: { f: 0, s: 0 }, inputMode: 'klavye',
+    shotPending: false, slot: 0, pauseOnBlur: true
   };
   MV.G = G;
 
@@ -82,16 +87,114 @@
     this.tex = MV.texBuild();
     MV.Renderer.init(canvas);
     MV.Renderer.prepare(this.tex);
-    const save = MV.loadSave();
-    if (save && save.seed) {
-      this.applySave(save);
+
+    /* masaüstü ayarları (varsa dosyadan, yoksa localStorage'dan) */
+    this.settings = MV.Desktop.settings.read();
+    MV.Desktop.apply(this.settings);
+
+    /* son durum: otomatik kayıt (slot 0) → yoksa yeni deney */
+    const auto = MV.Desktop.save.read(0);
+    if (auto) {
+      try { this.applySave(JSON.parse(auto)); } catch (e) { this.newGame((Math.random() * 1e9) | 0); }
     } else {
       this.newGame((Math.random() * 1e9) | 0);
     }
     this.bindInput();
+    this.bindDesktop();
     this.running = true;
     this.last = performance.now();
     requestAnimationFrame(this.loop.bind(this));
+  };
+
+  /* ---------- masaüstü kabuğu olayları ---------- */
+  G.bindDesktop = function () {
+    const self = this;
+    MV.Desktop.onMenu(function (cmd) { self.handleMenuCommand(cmd); });
+    MV.Desktop.onWindow(function (kind, arg) {
+      if (kind === 'blur') {
+        if (self.running && !self.dead && !self.won && !MV.UI.modalOpen() && self.pauseOnBlur) {
+          MV.UI.togglePause();
+        }
+      } else if (kind === 'resize') {
+        MV.Renderer.resize();
+      } else if (kind === 'fullscreen') {
+        self.settings = MV.Desktop.settings.write({ fullscreen: !!arg });
+      }
+    });
+    MV.Desktop.onShotSaved(function (file) {
+      self.shotPending = false;
+      MV.UI.toast('EKRAN GÖRÜNTÜSÜ: ' + file);
+      MV.logMsg('Ekran görüntüsü kaydedildi: ' + file);
+    });
+  };
+
+  G.handleMenuCommand = function (cmd) {
+    switch (cmd) {
+      case 'new':
+        MV.UI.confirmNew();
+        break;
+      case 'continue':
+        this.loadFrom(0) ? MV.UI.toast('OTOMATİK KAYIT YÜKLENDİ') : MV.UI.toast('OTOMATİK KAYIT YOK');
+        break;
+      case 'save':
+        MV.UI.openSaveSlots('save');
+        break;
+      case 'load':
+        MV.UI.openSaveSlots('load');
+        break;
+      case 'pause':
+        if (!MV.UI.modalOpen()) MV.UI.togglePause();
+        else MV.UI.closeModal();
+        break;
+      case 'quality': {
+        const order = ['yuksek', 'orta', 'performans'];
+        const cur = this.settings.quality || 'orta';
+        const next = order[(order.indexOf(cur) + 1) % order.length];
+        this.applySetting('quality', next);
+        MV.UI.toast('GÖRÜNTÜ KALİTESİ: ' + MV.Desktop.QUALITY_LABEL[next]);
+        break;
+      }
+      case 'fps':
+        this.applySetting('fps', !this.settings.fps);
+        break;
+      case 'mute':
+        this.applySetting('muted', !this.settings.muted);
+        MV.UI.toast(this.settings.muted ? 'SES KAPALI' : 'SES AÇIK');
+        break;
+      case 'settings':
+        MV.UI.openSettings();
+        break;
+      case 'controls':
+        MV.UI.showControls(false);
+        break;
+      case 'save-and-quit':
+        this.saveTo(0);
+        MV.logMsg('Çıkıştan önce kaydedildi.');
+        break;
+      case 'screenshot':
+        this.takeScreenshot();
+        break;
+    }
+  };
+
+  /* ayar değiştir → kaydet → uygula */
+  G.applySetting = function (key, value) {
+    this.settings = MV.Desktop.settings.write({ [key]: value });
+    MV.Desktop.apply(this.settings);
+    return this.settings;
+  };
+
+  /* ekran görüntüsü: HUD gizlenir, yakalanır, HUD geri gelir */
+  G.takeScreenshot = function () {
+    if (!MV.Desktop.isDesktop) { MV.UI.toast('EKRAN GÖRÜNTÜSÜ YALNIZCA MASAÜSTÜNDE (F12)'); return; }
+    this.shotPending = true;
+    MV.UI.hideOverlaysForShot();
+    const self = this;
+    setTimeout(function () {
+      MV.Desktop.screenshot();
+      MV.UI.showOverlaysAfterShot();
+      self.shotPending = false;
+    }, 120);
   };
 
   G.newGame = function (seed) {
@@ -294,6 +397,19 @@
     }, { passive: false });
 
     window.addEventListener('blur', () => { self.keys = {}; self.mouse.down = false; });
+    /* oyun kolu bağlanınca haber ver */
+    window.addEventListener('gamepadconnected', (e) => {
+      self.inputMode = 'kol';
+      if (MV.UI && MV.UI.toast) MV.UI.toast('KOL BAĞLANDI: ' + (e.gamepad && e.gamepad.id ? String(e.gamepad.id).slice(0, 28) : 'kol'));
+    });
+    window.addEventListener('gamepaddisconnected', () => {
+      self.pad = null; self.padMove = { f: 0, s: 0 };
+      if (MV.UI && MV.UI.toast) MV.UI.toast('KOL AYRILDI — KLAVYE/FARE');
+    });
+    /* fare kullanılınca girdi kipini geri al */
+    document.addEventListener('mousemove', (e) => {
+      if (Math.abs(e.movementX || 0) + Math.abs(e.movementY || 0) > 4) self.inputMode = 'klavye';
+    });
   };
 
   G.onKey = function (e) {
@@ -338,6 +454,7 @@
   G.update = function (dt) {
     const P = this.player, w = this.world;
     this.meta.time += dt;
+    this.pollGamepad(dt);
     /* kaçış sinematiği: kapak açılır, ışık yükselir, rapor gelir */
     if (this.cinematic) {
       this.cinematic.t += dt;
@@ -365,7 +482,7 @@
     };
     AI.update(st, dt);
 
-    /* --- ses --- */
+    /* --- ses + kamera sarsıntısı --- */
     let prox = 0;
     for (const g of this.grievers) {
       if (g.dead) continue;
@@ -374,6 +491,9 @@
     }
     A.setGriever(prox * (this.phase === 'night' ? 1 : 0.6));
     this.nearestGrieverProx = prox;
+    /* yakın tehdit varken kamera titrer (ayarlardan kapatılabilir) */
+    const shakeTarget = this.shake ? prox * prox * 0.012 : 0;
+    this.shakeAmt = lerp(this.shakeAmt || 0, shakeTarget, dt * 3);
     this.fear = lerp(this.fear, clamp(prox * 1.2 + (this.phase === 'night' ? 0.35 : 0), 0, 1), dt * 0.5);
     if (this.fear > 0.55 && this.meta.time - this.lastHeart > (1.15 - this.fear * 0.45)) {
       this.lastHeart = this.meta.time;
@@ -455,13 +575,67 @@
     this.startDeath('temizlik', 'WICKED deneyi kapattı. Labirent sustu.');
   };
 
+  /* ---------- oyun kolu (Xbox/DualSense/8BitDo…) ---------- */
+  G.pollGamepad = function (dt) {
+    if (typeof navigator === 'undefined' || !navigator.getGamepads) return;
+    let pad = null;
+    const pads = navigator.getGamepads();
+    for (let i = 0; i < pads.length; i++) { if (pads[i] && pads[i].connected) { pad = pads[i]; break; } }
+    this.pad = pad;
+    if (!pad) { this.padMove.f = 0; this.padMove.s = 0; return; }
+    const dz = 0.22;
+    const ax = (i) => { const v = pad.axes[i] || 0; return Math.abs(v) < dz ? 0 : (Math.abs(v) - dz) / (1 - dz) * Math.sign(v); };
+    const b = (i) => !!(pad.buttons[i] && pad.buttons[i].pressed);
+    const pressed = (i) => b(i) && !this.padPrev[i];
+    this.padPrev = this.padPrev || {};
+    /* hareket: sol çubuk (y yukarı = -1) */
+    this.padMove.f = -ax(1);
+    this.padMove.s = ax(0);
+    /* bakış: sağ çubuk */
+    const sens = (this.sensitivity || 1) * (this.invertY ? -1 : 1);
+    const lookX = ax(2), lookY = ax(3);
+    if (lookX || lookY) {
+      this.player.a += lookX * 2.3 * sens * dt;
+      this.player.pitch = MV.clamp(this.player.pitch - lookY * 150 * sens * dt, -this.H() * 0.28, this.H() * 0.28);
+      this.inputMode = 'kol';
+    }
+    /* düğmeler (kenar tetiklemeli) */
+    if (pressed(0)) this.interact();                 // A: etkileşim
+    if (pressed(1)) this.toggleTorch();              // B: fener
+    if (pressed(2)) this.onAttack();                 // X: mızrak
+    if (pressed(3)) this.useTool();                  // Y: araç kullan
+    if (pressed(4)) { this.cycleTool(-1); }          // LB
+    if (pressed(5)) { this.cycleTool(1); }           // RB
+    if (pressed(6)) this.player.crouch = !this.player.crouch;   // LT: eğil
+    if (pressed(7) || (pad.buttons[7] && pad.buttons[7].value > 0.6 && !this.padPrev.rt)) {
+      this.onAttack(); this.padPrev.rt = true;       // RT: saldırı
+      setTimeout(() => { this.padPrev.rt = false; }, 220);
+    }
+    if (pressed(9)) { if (!MV.UI.modalOpen()) MV.UI.togglePause(); else MV.UI.closeModal(); }  // Start
+    if (pressed(8)) {                                                                       // Back: harita
+      if (MV.UI.mapOpen) { MV.UI.mapOpen = false; MV.UI.closeModal(); }
+      else { this.paused = false; MV.UI.openMap(); }
+    }
+    /* düğme durumlarını sakla */
+    for (let i = 0; i < pad.buttons.length; i++) this.padPrev[i] = b(i);
+    /* koşu: sol çubuğu sonuna kadar itmek */
+    const sprint = Math.hypot(ax(0), ax(1)) > 0.85;
+    this.padSprint = sprint;
+  };
+
+  G.cycleTool = function (dir) {
+    this.tool = ((this.tool + dir) % 4 + 4) % 4;
+    A.ui(); MV.UI.syncSlots();
+  };
+
   /* ---------- bakış ---------- */
   G.updateLook = function (dt) {
     const P = this.player;
-    const sens = 0.0022;
+    const sens = 0.0022 * (this.sensitivity || 1);
+    const inv = this.invertY ? -1 : 1;
     if (this.mouse.dx || this.mouse.dy) {
       P.a += this.mouse.dx * sens;
-      P.pitch = clamp(P.pitch - this.mouse.dy * sens * 30, -this.H() * 0.28, this.H() * 0.28);
+      P.pitch = clamp(P.pitch - this.mouse.dy * sens * 30 * inv, -this.H() * 0.28, this.H() * 0.28);
       this.mouse.dx = 0; this.mouse.dy = 0;
     }
     if (this.keys.ArrowLeft) P.a -= 1.9 * dt;
@@ -478,8 +652,11 @@
     if (this.keys.KeyS) fwd -= 1;
     if (this.keys.KeyA) strafe -= 1;
     if (this.keys.KeyD) strafe += 1;
-    const sprintKey = this.keys.ShiftLeft || this.keys.ShiftRight;
-    const wantSprint = sprintKey && fwd > 0 && P.stam > 4 && !P.crouch;
+    /* kol girdisi */
+    const pm = this.padMove || { f: 0, s: 0 };
+    if (pm.f || pm.s) { fwd += pm.f; strafe += pm.s; this.inputMode = 'kol'; }
+    const sprintKey = this.keys.ShiftLeft || this.keys.ShiftRight || this.padSprint;
+    const wantSprint = sprintKey && fwd > 0.1 && P.stam > 4 && !P.crouch;
     P.sprint = wantSprint;
     const speed = (P.crouch ? 1.5 : (P.sprint ? P.runSpeed : P.walkSpeed)) * (this.phase === 'night' && !this.insideGlade() ? 0.95 : 1);
     const len = Math.hypot(fwd, strafe) || 1;
@@ -941,13 +1118,14 @@
   };
   G.win = function () {
     this.won = true;
+    MV.Desktop.save.remove(0);      // otomatik kayıt temizlenir: deney tamamlandı
     MV.UI.win();
   };
 
   /* ---------- kayıt ---------- */
   G.snapshot = function () {
     return {
-      seed: this.seed, day: this.day, phase: this.phase, clock: this.clock,
+      v: 1, t: Date.now(), seed: this.seed, day: this.day, phase: this.phase, clock: this.clock,
       px: this.player.x, py: this.player.y, pa: this.player.a,
       hp: this.player.hp, stam: this.player.stam, hunger: this.player.hunger,
       poison: this.player.poison, tools: this.tools, tool: this.tool,
@@ -957,9 +1135,30 @@
       taken: this.items.map((it, i) => it.taken ? i : -1).filter(i => i >= 0)
     };
   };
-  G.save = function () {
-    if (this.dead) return;
-    MV.writeSave(this.snapshot());
+  G.save = function (slot) {
+    if (this.dead) return false;
+    return this.saveTo(slot === undefined ? 0 : slot);
+  };
+  G.saveTo = function (slot) {
+    if (this.dead) return false;
+    const ok = MV.Desktop.save.write(slot, JSON.stringify(this.snapshot()));
+    if (ok) MV.logMsg('Kayıt: slot ' + slot + ' (gün ' + this.day + ')');
+    return ok;
+  };
+  G.loadFrom = function (slot) {
+    const raw = MV.Desktop.save.read(slot);
+    if (!raw) return false;
+    try {
+      this.applySave(JSON.parse(raw));
+      this.dead = false; this.won = false; this.cinematic = null;
+      MV.UI.closeModal();
+      MV.UI.setObjective(this.obj());
+      MV.logMsg('Kayıt yüklendi: slot ' + slot);
+      return true;
+    } catch (e) {
+      MV.logMsg('Kayıt okunamadı: ' + e.message);
+      return false;
+    }
   };
   G.autoSave = function (dt) {
     this.saveT += dt;
@@ -1088,8 +1287,11 @@
     if (this.tool === 3) held.push({ sprite: this.resources.serum > 0 && P.poison > 2 ? 'vial' : 'food', x: 0.76, y: -8, scale: 1.1, rot: -0.1 });
 
     const zc = P.zc + Math.sin(P.bobT * 2) * 0.006 - (P.crouch ? 0.14 : 0) - this.falling * 0.25;
+    const sh = this.shakeAmt || 0;
+    const shx = sh ? Math.sin(this.meta.time * 41) * sh : 0;
+    const shy = sh ? Math.cos(this.meta.time * 37) * sh : 0;
     this.view = {
-      world: w, px: P.x, py: P.y, pa: P.a, pitch: P.pitch,
+      world: w, px: P.x, py: P.y, pa: P.a + shx * 0.9, pitch: P.pitch + shy * 60,
       zc: zc, bobY: P.bobY, bobX: P.bobX,
       light: light * flicker * (this.falling > 0 ? 0.5 : 1),
       torch: torch * flicker,

@@ -7,6 +7,28 @@
   const { clamp, lerp, TAU, fmtTime, pad2, T } = MV;
   const Maze = MV.Maze;
 
+  /* ayar satırları: ◀ değer ▶ biçiminde tıklanabilir */
+  const SETTINGS_ROWS = [
+    { key: 'quality', label: 'GÖRÜNTÜ KALİTESİ', values: ['yuksek', 'orta', 'performans'],
+      fmt: (v) => MV.Desktop.QUALITY_LABEL[v], hint: 'Yüksek=480p iç çözünürlük, Performans=160p (eski PC\'ler için)' },
+    { key: 'fov', label: 'GÖRÜŞ ALANI', values: [0.85, 1.0, 1.15, 1.3],
+      fmt: (v) => Math.round(v * 100) + '%', hint: 'Yüksek FOV daha geniş görür ama daha fazla çizer' },
+    { key: 'sensitivity', label: 'FARE HASSASİYETİ', values: [0.4, 0.6, 0.8, 1.0, 1.2, 1.5, 1.8, 2.0],
+      fmt: (v) => v.toFixed(1) + '×', hint: '' },
+    { key: 'invertY', label: 'Y EKSENİNİ TERS ÇEVİR', values: [false, true],
+      fmt: (v) => v ? 'AÇIK' : 'KAPALI', hint: '' },
+    { key: 'shake', label: 'KAMERA SARSINTISI', values: [true, false],
+      fmt: (v) => v ? 'AÇIK' : 'KAPALI', hint: 'Grievers yaklaşınca ekran titremesi' },
+    { key: 'hudScale', label: 'ARAYÜZ ÖLÇEĞİ', values: [0.85, 1.0, 1.15, 1.3],
+      fmt: (v) => Math.round(v * 100) + '%', hint: '' },
+    { key: 'volume', label: 'SES SEVİYESİ', values: [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0],
+      fmt: (v) => Math.round(v * 100) + '%', hint: '' },
+    { key: 'muted', label: 'SES', values: [false, true],
+      fmt: (v) => v ? 'KAPALI' : 'AÇIK', hint: '' },
+    { key: 'fps', label: 'FPS SAYACI', values: [false, true],
+      fmt: (v) => v ? 'AÇIK' : 'KAPALI', hint: 'Sağ üstte kare hızı göstergesi (F3)' }
+  ];
+
   const UI = {
     refs: {}, modalShown: false, tracker: false, nightF: 0, dmgFx: 0,
     msgT: 0, subT: 0, toastT: 0, hintT: 0, seenIntro: false, paused: false,
@@ -30,15 +52,12 @@
         subtitle: $('subtitle'), hint: $('hint'), toast: $('toast'),
         overlay: $('overlay'), modal: $('modal'), slots: [$('slot0'), $('slot1'), $('slot2'), $('slot3')],
         condPoi: $('cond-poi'), condHun: $('cond-hun'), condCra: $('cond-cra'),
-        bootWarn: $('boot-warn'), msgcard: $('msgcard')
+        bootWarn: $('boot-warn'), msgcard: $('msgcard'),
+        hud: $('hud'), fx: $('fx'), fps: $('fps')
       };
       this.cctx = this.refs.compass.getContext('2d');
       this.buildRuneStrip();
       this.buildLog();
-      try {
-        const q = parseInt(localStorage.getItem('labirent-quality') || '1', 10);
-        if (q === 1 || q === 2) MV.Renderer.setQuality(q);
-      } catch (e) { }
       const canvas = this.refs.view;
       canvas.addEventListener('click', () => {
         MV.Audio.ensure(); MV.Audio.resume();
@@ -52,11 +71,23 @@
        AÇILIŞ / MENÜLER
        ============================================================ */
     refreshFromSave() {
-      const s = MV.loadSave();
-      this.showTitle(!!s);
+      this.showTitle();
     },
-    showTitle(hasSave) {
+    showTitle() {
       const G = this.refs.G;
+      const D = MV.Desktop;
+      const info = D.info();
+      const slots = D.save.list();
+      const auto = slots[0];
+      const anyManual = slots.slice(1).some(sl => !sl.empty);
+      const hasAny = !auto.empty || anyManual;
+      const autoLine = auto.empty
+        ? '<span class="dim">otomatik kayıt yok</span>'
+        : '<span class="amber">GÜN ' + auto.day + ' · ' + (auto.phase === 'night' ? 'GECE' : 'GÜNDÜZ') +
+        ' · veri ' + auto.runes + '/8</span>';
+      const box = (d) => '<span class="dim">' + (d.electron && d.electron !== '-' ? 'Electron ' + d.electron : 'Tarayıcı') +
+        ' · sürüm ' + d.version + '</span>';
+      const platformName = { win32: 'Windows', darwin: 'macOS', linux: 'Linux' }[info.platform] || info.platform;
       this.modal({
         kicker: 'WICKED — DENEY SAHASI 7 / LABİRENT PROTOKOLÜ',
         title: 'LABİRENT PROTOKOLÜ',
@@ -66,24 +97,212 @@
             <div class="wicked">P R O T O K O L Ü</div>
             <div class="sub">60 ÖZNE · 4 GEÇİT · 1 ÇIKIŞ</div>
           </div>
-          <p class="dim" style="margin-top:16px">Kutu seni yukarı bıraktı. Hiçbir şey hatırlamıyorsun. Kayran duvarlarla çevrili,
-          labirent her gece kendi duvarlarını yeniden diziyor ve geçitler alacakaranlıkta kapanıyor.
-          İçeride kalan bir daha dönmüyor.</p>
+          <p class="dim" style="margin-top:14px">Kutu seni yukarı bıraktı. Hiçbir şey hatırlamıyorsun. Kayran duvarlarla çevrili,
+          labirent her gece kendi duvarlarını yeniden diziyor ve geçitler alacakaranlıkta kapanıyor.</p>
+          <div class="savebar">
+            <div><span class="k">OTOMATİK KAYIT</span> ${autoLine}</div>
+            <div class="dim">Sistem: ${platformName} · ${box(info)}</div>
+          </div>
           <h3>HAYATTA KALMA KURALLARI</h3>
           <ul>
             <li>Gün doğduğunda geçitler açılır, <span class="amber">alacakaranlıkta kapanır</span>. Dışarıda kalan geceyi görür.</li>
-            <li>Labirentteki <span class="amber">8 rune taşı</span> WICKED’in çıkış kodunu taşır. Sırası taşa kazınmıştır.</li>
-            <li><span class="cyan">Böcek Bıçakları</span> seni görürse konumunu WICKED’e bildirir. <span class="red">Grievers</span> gelir.</li>
-            <li>Kayran’daki <span class="amber">Kutu terminali</span> ile malzemeden araç üret.</li>
+            <li>Labirentteki <span class="amber">8 rune taşı</span> WICKED'in çıkış kodunu taşır. Sırası taşa kazınmıştır.</li>
+            <li><span class="cyan">Böcek Bıçakları</span> seni görürse konumunu WICKED'e bildirir. <span class="red">Grievers</span> gelir.</li>
+            <li>Kayran'daki <span class="amber">Kutu terminali</span> ile malzemeden araç üret.</li>
           </ul>`,
         buttons: [
-          hasSave ? { label: 'DEVAM ET', cls: 'primary wide', fn: () => { this.closeModal(); MV.Audio.ensure(); } } : null,
-          { label: 'YENİ DENEY', cls: 'wide' + (hasSave ? '' : ' primary'), fn: () => { G.newGame((Math.random() * 1e9) | 0); this.seenIntro = true; this.intro(); } },
-          { label: 'KONTROLLER', cls: 'wide', fn: () => this.showControls(true) }
-        ].filter(Boolean)
+          !auto.empty ? { label: 'DEVAM ET — GÜN ' + auto.day, cls: 'primary wide', fn: () => this.continueGame() } : null,
+          anyManual ? { label: 'KAYIT YÜKLE', cls: 'wide', fn: () => this.openSaveSlots('load') } : null,
+          { label: hasAny ? 'YENİ DENEY' : 'DENEYE BAŞLA', cls: (hasAny ? 'wide' : 'primary wide'), fn: () => this.confirmNew() },
+          { label: 'AYARLAR', cls: 'wide', fn: () => this.openSettings(true) },
+          { label: 'KONTROLLER', cls: 'wide', fn: () => this.showControls(true) },
+          MV.Desktop.isDesktop ? { label: 'ÇIKIŞ', cls: 'danger wide', fn: () => MV.Desktop.quit() } : null
+        ].filter(Boolean),
+        escClose: false
       });
     },
+    /* otomatik kayıttan devam */
+    continueGame() {
+      const G = this.refs.G;
+      if (G.loadFrom(0)) { this.closeModal(); MV.Audio.ensure(); }
+      else this.toast('OTOMATİK KAYIT OKUNAMADI');
+    },
+    /* yeni deney onayı */
+    confirmNew() {
+      const G = this.refs.G;
+      const slots = MV.Desktop.save.list();
+      const hasAny = slots.some(sl => !sl.empty);
+      if (!hasAny) {
+        G.newGame((Math.random() * 1e9) | 0);
+        this.seenIntro = true;
+        this.intro();
+        return;
+      }
+      this.modal({
+        kicker: 'YENİ DENEY', title: 'DENEYİ SIFIRLA',
+        html: `<p>Yeni bir labirent üretilecek: yeni duvarlar, yeni rune yerleşimi, yeni bir özne.</p>
+        <p class="red">Mevcut ilerleme (${slots.filter(sl => !sl.empty).length} kayıt) silinmez; üzerine yazmak istersen bunu <span class="amber">Kaydet</span> ekranından yapabilirsin.</p>`,
+        buttons: [
+          { label: 'YENİ LABİRENT ÜRET', cls: 'primary wide', fn: () => { G.newGame((Math.random() * 1e9) | 0); this.seenIntro = true; this.intro(); } },
+          { label: 'VAZGEÇ', cls: 'wide', fn: () => this.showTitle() }
+        ]
+      });
+    },
+
+    /* ============================================================
+       KAYIT SLOTLARI
+       ============================================================ */
+    openSaveSlots(mode) {
+      const G = this.refs.G;
+      const slots = MV.Desktop.save.list();
+      const list = (mode === 'save' ? slots.slice(1) : slots);
+      const dateStr = (t) => {
+        if (!t) return '—';
+        const d = new Date(t);
+        return d.toLocaleDateString('tr-TR') + ' ' + d.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
+      };
+      const rows = list.map(sl => {
+        const name = sl.slot === 0 ? 'OTOMATİK KAYIT' : 'SLOT ' + sl.slot;
+        if (sl.empty) {
+          return `<div class="slotRow empty">
+            <div class="sr-info"><div class="sr-name">${name}</div><div class="sr-meta dim">boş</div></div>
+            ${mode === 'save' ? `<button class="btn" data-save="${sl.slot}">BURAYA KAYDET</button>` : ''}
+          </div>`;
+        }
+        const meta = `Gün ${sl.day} · ${sl.phase === 'night' ? 'gece' : 'gündüz'} · veri ${sl.runes}/8` +
+          ` · anahtar ${sl.hasKey ? 'var' : 'yok'} · ${sl.kills} grievers` +
+          `<br><span class="dim">${dateStr(sl.date)} · can ${sl.hp} · ${Math.round((sl.time || 0) / 60)} dk</span>`;
+        const actions = [
+          `<button class="btn primary" data-load="${sl.slot}">YÜKLE</button>`,
+          mode === 'save' ? `<button class="btn" data-save="${sl.slot}">ÜZERİNE YAZ</button>` : '',
+          `<button class="btn danger" data-del="${sl.slot}">SİL</button>`
+        ].filter(Boolean).join(' ');
+        return `<div class="slotRow">
+          <div class="sr-info"><div class="sr-name">${name}</div><div class="sr-meta">${meta}</div></div>
+          <div class="sr-actions">${actions}</div>
+        </div>`;
+      }).join('');
+      this.modal({
+        kicker: 'KAYITLAR — ' + MV.Desktop.save.dir(), title: mode === 'save' ? 'OYUNU KAYDET' : 'KAYIT YÜKLE',
+        html: `<div class="slotList">${rows}</div>
+          <p class="dim" style="margin-top:10px">Oyun her 20 saniyede otomatik olarak slot 0'a kaydeder.
+          ${MV.Desktop.isDesktop ? 'Dosyalar: ' + MV.Desktop.save.dir() : 'Tarayıcıda kayıtlar localStorage\'da tutulur.'}</p>`,
+        buttons: [
+          MV.Desktop.isDesktop ? { label: 'KAYIT KLASÖRÜNÜ AÇ', cls: 'wide', fn: () => MV.Desktop.openFolder('saves') } : null,
+          { label: 'GERİ', cls: 'primary wide', fn: () => (mode === 'save' ? this.togglePause() : this.showTitle()) }
+        ].filter(Boolean),
+        escClose: true
+      });
+      const m = this.refs.modal;
+      m.querySelectorAll('[data-load]').forEach(btn => {
+        btn.onclick = () => {
+          const slot = parseInt(btn.getAttribute('data-load'), 10);
+          if (G.loadFrom(slot)) { this.closeModal(); this.toast('KAYIT YÜKLENDİ: SLOT ' + slot); }
+          else this.toast('KAYIT YÜKLENEMEDİ');
+        };
+      });
+      m.querySelectorAll('[data-save]').forEach(btn => {
+        btn.onclick = () => {
+          const slot = parseInt(btn.getAttribute('data-save'), 10);
+          if (G.saveTo(slot)) { this.openSaveSlots('save'); this.toast('KAYDEDİLDİ: SLOT ' + slot); }
+          else this.toast('KAYDEDİLEMEDİ (ölüm sonrası kayıt alınmaz)');
+        };
+      });
+      m.querySelectorAll('[data-del]').forEach(btn => {
+        btn.onclick = () => {
+          const slot = parseInt(btn.getAttribute('data-del'), 10);
+          MV.Desktop.save.remove(slot);
+          this.openSaveSlots(mode);
+          this.toast('SİLİNDİ: SLOT ' + slot);
+        };
+      });
+    },
+
+    /* ============================================================
+       AYARLAR
+       ============================================================ */
+    openSettings(fromTitle) {
+      const G = this.refs.G;
+      const cur = MV.Desktop.settings.read();
+      const D = MV.Desktop;
+      const info = D.info();
+      const row = (r) => {
+        const v = cur[r.key];
+        const idx = r.values.indexOf(v) >= 0 ? r.values.indexOf(v) : 0;
+        const label = r.fmt ? r.fmt(v === undefined ? r.values[0] : v) : String(v);
+        return `<div class="setRow" data-key="${r.key}">
+          <div class="sr-info">
+            <div class="sr-name">${r.label}</div>
+            ${r.hint ? '<div class="sr-meta dim">' + r.hint + '</div>' : ''}
+          </div>
+          <div class="sr-actions">
+            <button class="btn" data-dir="-1">◀</button>
+            <span class="setVal">${label}</span>
+            <button class="btn" data-dir="1">▶</button>
+          </div>
+        </div>`;
+      };
+      this.modal({
+        kicker: 'SİSTEM AYARLARI', title: 'AYARLAR',
+        html: `<div class="slotList">${SETTINGS_ROWS.map(row).join('')}</div>
+          ${D.isDesktop ? `<h3>SİSTEM</h3>
+          <div class="slotList">
+            <div class="setRow"><div class="sr-info"><div class="sr-name">TAM EKRAN</div>
+              <div class="sr-meta dim">F11 ile de değiştirilebilir</div></div>
+              <div class="sr-actions"><button class="btn" id="setFull">${cur.fullscreen ? 'AÇIK' : 'KAPALI'}</button></div></div>
+            <div class="setRow"><div class="sr-info"><div class="sr-name">EKRAN GÖRÜNTÜSÜ</div>
+              <div class="sr-meta dim">F12 · ${info.shots}</div></div>
+              <div class="sr-actions"><button class="btn" id="setShot">ÇEK</button>
+              <button class="btn" id="setShotDir">KLASÖRÜ AÇ</button></div></div>
+            <div class="setRow"><div class="sr-info"><div class="sr-name">KAYIT DOSYALARI</div>
+              <div class="sr-meta dim">${info.saves}</div></div>
+              <div class="sr-actions"><button class="btn" id="setSaveDir">KLASÖRÜ AÇ</button></div></div>
+            <div class="setRow"><div class="sr-info"><div class="sr-name">SÜRÜM</div>
+              <div class="sr-meta dim">${info.version} · Electron ${info.electron} · Chromium ${String(info.chrome).split('.')[0]} · ${info.platform}/${info.arch}</div></div>
+              <div class="sr-actions"></div></div>
+          </div>` : `<p class="dim" style="margin-top:10px">Tarayıcı sürümünde kayıtlar localStorage'da; ekran görüntüsü ve tam ekran için masaüstü uygulamasını kullan.</p>`}
+          <p class="dim" style="margin-top:10px">Ayarlar anında uygulanır ve kalıcı olarak saklanır.</p>`,
+        buttons: [
+          { label: 'SIFIRLA', cls: 'danger wide', fn: () => { MV.Desktop.settings.write(MV.Desktop.DEFAULT_SETTINGS); MV.Desktop.apply(); this.openSettings(fromTitle); this.toast('AYARLAR SIFIRLANDI'); } },
+          { label: fromTitle ? 'ANA MENÜ' : 'KAPAT', cls: 'primary wide', fn: () => (fromTitle ? this.showTitle() : this.togglePause()) }
+        ],
+        escClose: true
+      });
+
+      const m = this.refs.modal;
+      SETTINGS_ROWS.forEach((r) => {
+        const el = m.querySelector('[data-key="' + r.key + '"]');
+        if (!el) return;
+        el.querySelectorAll('[data-dir]').forEach(btn => {
+          btn.onclick = () => {
+            const dir = parseInt(btn.getAttribute('data-dir'), 10);
+            const cur2 = MV.Desktop.settings.read();
+            let i = r.values.indexOf(cur2[r.key]);
+            if (i < 0) i = 0;
+            i = (i + dir + r.values.length) % r.values.length;
+            G.applySetting(r.key, r.values[i]);
+            MV.Audio.ui();
+            this.openSettings(fromTitle);
+          };
+        });
+      });
+      const full = m.querySelector('#setFull');
+      if (full) full.onclick = () => {
+        const next = !MV.Desktop.settings.read().fullscreen;
+        MV.Desktop.setFullscreen(next);
+        G.applySetting('fullscreen', next);
+        this.openSettings(fromTitle);
+      };
+      const shot = m.querySelector('#setShot');
+      if (shot) shot.onclick = () => { G.takeScreenshot(); };
+      const sd = m.querySelector('#setShotDir');
+      if (sd) sd.onclick = () => MV.Desktop.openFolder('shots');
+      const svd = m.querySelector('#setSaveDir');
+      if (svd) svd.onclick = () => MV.Desktop.openFolder('saves');
+    },
+
     showControls(back) {
+      const G = this.refs.G;
       this.modal({
         kicker: 'SİSTEM', title: 'KONTROLLER',
         html: `<div class="keys">
@@ -100,8 +319,21 @@
           <div><span>Günlük</span><b>TAB</b></div>
           <div><span>Duraklat</span><b>ESC</b></div>
         </div>
+        <p class="dim" style="margin-top:10px;letter-spacing:.05em">OYUN KOLU (Xbox / DualSense / 8BitDo)</p>
+        <div class="keys">
+          <div><span>Yürü / bak</span><b>SOL / SAĞ ÇUBUK</b></div>
+          <div><span>Koş</span><b>ÇUBUĞU İT</b></div>
+          <div><span>Etkileşim</span><b>A</b></div>
+          <div><span>Fener</span><b>B</b></div>
+          <div><span>Mızrak</span><b>X</b></div>
+          <div><span>Araç kullan</span><b>Y</b></div>
+          <div><span>Araç değiştir</span><b>LB / RB</b></div>
+          <div><span>Eğil</span><b>LT</b></div>
+          <div><span>Harita</span><b>BACK</b></div>
+          <div><span>Duraklat</span><b>START</b></div>
+        </div>
         <p class="dim" style="margin-top:14px">İpucu: Eğilerek yürürken sesin azalır; Grievers seni daha zor bulur. Fener seni görünür yapar ama karanlıkta yalnız ölürsün.</p>`,
-        buttons: back ? [{ label: 'GERİ', cls: 'primary wide', fn: () => this.showTitle(!!MV.loadSave()) }]
+        buttons: back ? [{ label: 'GERİ', cls: 'primary wide', fn: () => this.showTitle() }]
           : [{ label: 'KAPAT', cls: 'wide primary', fn: () => this.closeModal() }]
       });
     },
@@ -167,6 +399,8 @@
       this.refs.overlay.classList.add('hidden');
       this.modalShown = false;
       this.modalCfg = null;
+      this.mapOpen = false;
+      this.keypadOn = false;
       const cv = this.refs.view;
       if (cv && !document.pointerLockElement) { try { cv.requestPointerLock(); } catch (e) { } }
     },
@@ -241,6 +475,17 @@
       if (this.hintT > 0) { this.hintT -= dt; if (this.hintT <= 0) r.hint.classList.remove('on'); }
       this.drawCompass(G);
       if (this.mapOpen) this.drawMap(G);
+      /* FPS sayacı */
+      if (this.fpsVisible && this.refs.fps) {
+        this.fpsAcc = (this.fpsAcc || 0) + dt;
+        this.fpsFrames = (this.fpsFrames || 0) + 1;
+        if (this.fpsAcc >= 0.5) {
+          const fps = Math.round(this.fpsFrames / this.fpsAcc);
+          this.refs.fps.textContent = fps + ' FPS · ' + MV.Renderer.W + '×' + MV.Renderer.H +
+            ' · ' + (G.view.entities.length) + ' nesne';
+          this.fpsAcc = 0; this.fpsFrames = 0;
+        }
+      }
     },
     setPrompt(txt) {
       const r = this.refs;
@@ -392,6 +637,27 @@
       this.refs.sectorTag.textContent = sec === 255
         ? (r < MV.K.R1 ? 'KAYRAN' : (r > MV.K.RAV1 ? 'DIŞ KUŞAK' : 'HALKA YOLU'))
         : 'BÖLÜM ' + (sec + 1);
+    },
+    setHudScale(v) {
+      this.hudScale = v || 1;
+      const hud = this.refs.hud;
+      if (hud && hud.style) hud.style.zoom = String(this.hudScale);
+    },
+    setFpsVisible(on) {
+      this.fpsVisible = !!on;
+      const el = this.refs.fps;
+      if (el && el.classList) el.classList.toggle('hidden', !on);
+      if (el) el.style.display = on ? '' : 'none';
+    },
+    hideOverlaysForShot() {
+      if (this.refs.hud && this.refs.hud.style) this.refs.hud.style.display = 'none';
+      if (this.refs.fx && this.refs.fx.style) this.refs.fx.style.display = 'none';
+      if (this.refs.modal && this.refs.modal.style) this.refs.modal.style.display = 'none';
+    },
+    showOverlaysAfterShot() {
+      if (this.refs.hud && this.refs.hud.style) this.refs.hud.style.display = '';
+      if (this.refs.fx && this.refs.fx.style) this.refs.fx.style.display = '';
+      if (this.refs.modal) this.refs.modal.style.display = '';
     },
     setPointerLockUI(locked) {
       if (locked) { this.lockHintShown = true; return; }
@@ -695,26 +961,33 @@
           <div><span>Labirent süresi</span><b>${Math.round(G.meta.time / 60)} dk</b></div>
         </div>`,
         buttons: [
-          { label: 'YENİ DENEY', cls: 'primary wide', fn: () => { G.newGame((Math.random() * 1e9) | 0); this.closeModal(); } }
+          { label: 'YENİ DENEY', cls: 'primary wide', fn: () => { G.newGame((Math.random() * 1e9) | 0); this.seenIntro = true; this.intro(); } },
+          { label: 'ANA MENÜ', cls: 'wide', fn: () => this.showTitle() }
         ]
       });
-      MV.clearSave();
+      MV.Desktop.save.remove(0);
     },
     togglePause() {
       const G = this.refs.G;
       if (this.modalOpen()) { this.closeModal(); G.paused = false; return; }
       G.paused = true;
+      const auto = MV.Desktop.save.list()[0];
+      const autoLine = auto.empty ? '<span class="dim">otomatik kayıt yok</span>'
+        : '<span class="amber">Gün ' + auto.day + ' · ' + (auto.phase === 'night' ? 'gece' : 'gündüz') + '</span>';
       this.modal({
         kicker: 'SİSTEM', title: 'DURAKLATILDI',
-        html: `<p class="dim">Deney askıya alındı. Labirent bekliyor.</p>`,
+        html: `<div class="savebar"><div><span class="k">OTOMATİK KAYIT</span> ${autoLine}</div>
+          <div class="dim">Gün ${G.day} · veri ${G.runesRead.length}/8 · ${G.meta.kills} griever · ${Math.round(G.meta.time / 60)} dk</div></div>
+          <p class="dim">Deney askıya alındı. Labirent bekliyor.</p>`,
         buttons: [
           { label: 'DEVAM', cls: 'primary wide', fn: () => { G.paused = false; this.closeModal(); } },
+          { label: 'KAYDET', cls: 'wide', fn: () => this.openSaveSlots('save') },
+          { label: 'KAYIT YÜKLE', cls: 'wide', fn: () => this.openSaveSlots('load') },
+          { label: 'AYARLAR', cls: 'wide', fn: () => this.openSettings(false) },
           { label: 'KONTROLLER', cls: 'wide', fn: () => this.showControls(false) },
-          { label: 'KAYDET', cls: 'wide', fn: () => { G.save(); this.toast('KAYDEDİLDİ'); } },
-          { label: 'SESİ KAPAT/AÇ', cls: 'wide', fn: () => { MV.Audio.setMuted(!MV.Audio.muted); this.toast(MV.Audio.muted ? 'SES KAPALI' : 'SES AÇIK'); } },
-          { label: 'GÖRÜNTÜ KALİTESİ', cls: 'wide', fn: () => { this.setQuality(MV.Renderer.SS === 1 ? 2 : 1); this.togglePause(); this.togglePause(); } },
-          { label: 'YENİ DENEY', cls: 'danger wide', fn: () => { MV.clearSave(); G.newGame((Math.random() * 1e9) | 0); G.paused = false; this.closeModal(); } }
-        ],
+          { label: 'ANA MENÜ', cls: 'wide', fn: () => { G.paused = false; G.save(0); this.showTitle(); } },
+          MV.Desktop.isDesktop ? { label: 'ÇIKIŞ', cls: 'danger wide', fn: () => MV.Desktop.quit() } : null
+        ].filter(Boolean),
         escClose: true
       });
     },

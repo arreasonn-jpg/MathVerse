@@ -7,7 +7,7 @@
   const { clamp, lerp } = MV;
 
   const A = {
-    ctx: null, master: null, ready: false, muted: false,
+    ctx: null, master: null, ready: false, muted: false, volume: 0.85,
     noiseBuf: null, ambGain: null, ambSrc: null, droneGain: null, grGain: null,
     fear: 0,
 
@@ -18,7 +18,7 @@
       try {
         this.ctx = new AC();
         this.master = this.ctx.createGain();
-        this.master.gain.value = this.muted ? 0 : 0.85;
+        this.master.gain.value = this.muted ? 0 : this.volume;
         this.master.connect(this.ctx.destination);
         // beyaz gürültü tamponu (2 sn)
         const len = this.ctx.sampleRate * 2;
@@ -34,7 +34,11 @@
     resume() { if (this.ready && this.ctx.state === 'suspended') this.ctx.resume(); },
     setMuted(m) {
       this.muted = m;
-      if (this.master) this.master.gain.value = m ? 0 : 0.85;
+      if (this.master) this.master.gain.value = m ? 0 : this.volume;
+    },
+    setVolume(v) {
+      this.volume = clamp(typeof v === 'number' ? v : 0.85, 0, 1);
+      if (this.master && !this.muted) this.master.gain.value = this.volume;
     },
     now() { return this.ctx ? this.ctx.currentTime : 0; },
 
