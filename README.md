@@ -60,11 +60,11 @@ Dosyanın gerçekliğini her zaman yanında yayınlanan `SHA256SUMS-win.txt` ile
 
 ## İndir ve oyna
 
-Hazır kurulum dosyaları (Windows kurulum + taşınabilir, macOS dmg, Linux AppImage/deb):
+Güncel sürüm **v1.0.1** — hazır kurulum dosyaları (Windows kurulum / klasör / taşınabilir, macOS dmg, Linux AppImage + deb):
 
 **➡ https://github.com/arreasonn-jpg/MathVerse/releases/latest**
 
-Etiket atıldığında (örn. `v1.0.0`) bu paketler GitHub Actions tarafından otomatik üretilir
+Etiket atıldığında (örn. `v1.0.1`) bu paketler GitHub Actions tarafından otomatik üretilir
 (`.github/workflows/paket.yml`); elle tetiklemek için Actions → *Paket üret* → **Run workflow**.
 
 ## Kurulum / Çalıştırma
@@ -76,15 +76,15 @@ dosya konumları için: **[docs/KURULUM.md](docs/KURULUM.md)**
 
 | Platform | Dosya | Not |
 |---|---|---|
-| Windows | `LabirentProtokolu-Kurulum-1.0.0-x64.exe` | NSIS kurulumu (Türkçe sihirbaz), klasör + masaüstü/Başlat menüsü kısayolu |
-| Windows | `LabirentProtokolu-Tasinabilir-1.0.0-x64.exe` | Kurulumsuz taşınabilir sürüm (USB'den çalışır) |
-| Windows | `LabirentProtokolu-Klasor-1.0.0-x64.zip` | Klasöre çıkarıp çalıştır: ne kurulum ne uyarı |
-| macOS | `LabirentProtokolu-1.0.0-arm64.dmg` / `-x64.dmg` | Apple Silicon + Intel |
-| Linux | `LabirentProtokolu-1.0.0-x86_64.AppImage` / `.deb` | `chmod +x` sonrası çift tıkla, ya da `dpkg -i` |
+| Windows | `LabirentProtokolu-Kurulum-1.0.1-x64.exe` | NSIS kurulumu (Türkçe sihirbaz), klasör + masaüstü/Başlat menüsü kısayolu |
+| Windows | `LabirentProtokolu-Tasinabilir-1.0.1-x64.exe` | Kurulumsuz taşınabilir sürüm (USB'den çalışır) |
+| Windows | `LabirentProtokolu-Klasor-1.0.1-x64.zip` | Klasöre çıkarıp çalıştır: ne kurulum ne uyarı |
+| macOS | `LabirentProtokolu-1.0.1-arm64.dmg` / `-x64.dmg` | Apple Silicon + Intel |
+| Linux | `LabirentProtokolu-1.0.1-x86_64.AppImage` / `.deb` | `chmod +x` sonrası çift tıkla, ya da `dpkg -i` |
 
 > **Kurulum dosyalarını indirmenin en kolay yolu:** GitHub → **Actions** → *Paket üret* →
 > **Run workflow**. Üç platform için paketler üretilir ve çalışmanın **Artifacts** bölümünden
-> indirilebilir; `v1.0.0` gibi bir etiket atarsan dosyalar doğrudan **Releases** sayfasına eklenir.
+ > indirilebilir; `v1.0.1` gibi bir etiket atarsan dosyalar doğrudan **Releases** sayfasına eklenir.
 > Kendi bilgisayarında derlemek istersen aşağıdaki adımlar yeterlidir.
 
 ### Kaynaktan çalıştırma (geliştirici)

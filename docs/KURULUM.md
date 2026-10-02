@@ -84,12 +84,12 @@ bozulmamış ve değiştirilmemiş demektir.
 
 1. **Hazır paket (önerilen):** GitHub → **Actions** → *Paket üret* → **Run workflow**.
    Çalışma bitince sayfanın altındaki **Artifacts** bölümünden `Windows (kurulum + taşınabilir)`
-   dosyasını indir. Depoya `v1.0.0` gibi bir etiket atılırsa dosyalar **Releases** sayfasına eklenir.
+   dosyasını indir. Depoya `v1.0.1` gibi bir etiket atılırsa dosyalar **Releases** sayfasına eklenir.
 2. **Kendi bilgisayarında derle:** `npm install && npm run dist:win` (bkz. bölüm 9).
 
 ### 2.1 Kurulumlu sürüm (NSIS)
 
-1. `LabirentProtokolu-Kurulum-1.0.0-x64.exe` dosyasına çift tıkla.
+1. `LabirentProtokolu-Kurulum-1.0.1-x64.exe` dosyasına çift tıkla.
 2. Windows "Bilinmeyen yayıncı" uyarısı gösterirse: **Ek bilgi → Yine de yükle**
    (dosya imzalı bir sertifikayla değil, topluluk sürümü olarak üretilmiştir).
 3. Kurulum klasörünü seç → **Kur**.
@@ -105,7 +105,7 @@ Kurulum yapılmaz, kayıt defteri değişmez; oyunu bir USB belleğe bile kopyal
 
 ### 2.3 Taşınabilir sürüm (portable)
 
-`LabirentProtokolu-Tasinabilir-1.0.0-x64.exe` kurulum gerektirmez: dosyayı bir klasöre ya da USB belleğe kopyala ve
+`LabirentProtokolu-Tasinabilir-1.0.1-x64.exe` kurulum gerektirmez: dosyayı bir klasöre ya da USB belleğe kopyala ve
 çift tıkla. Kayıtlar ve ayarlar yine bilgisayarın kullanıcı klasörüne yazılır (bkz. bölüm 5);
 taşınabilir çalıştırılabilir dosyanın yanına veri bırakmaz.
 
@@ -119,7 +119,7 @@ Kaldırma, kayıt dosyalarını **silmez** (bölüm 5'teki klasörü elle silebi
 
 ## 3. macOS
 
-1. `LabirentProtokolu-1.0.0-arm64.dmg` (Apple Silicon) ya da `-x64.dmg` (Intel) dosyasını aç.
+1. `LabirentProtokolu-1.0.1-arm64.dmg` (Apple Silicon) ya da `-x64.dmg` (Intel) dosyasını aç.
 2. İçindeki **Labirent Protokolu** simgesini **Applications** klasörüne sürükle.
 3. İlk açılışta "geliştirici doğrulanamadı" uyarısı çıkarsa:
    **Sistem Ayarları → Gizlilik ve Güvenlik → Yine de Aç** ya da uygulamaya sağ tık → **Aç**.
@@ -132,8 +132,8 @@ Kaldırma, kayıt dosyalarını **silmez** (bölüm 5'teki klasörü elle silebi
 ### 4.1 AppImage (kurulumsuz, önerilen)
 
 ```bash
-chmod +x LabirentProtokolu-1.0.0-x86_64.AppImage
-./LabirentProtokolu-1.0.0-x86_64.AppImage
+chmod +x LabirentProtokolu-1.0.1-x86_64.AppImage
+./LabirentProtokolu-1.0.1-x86_64.AppImage
 ```
 
 Sanal ekranda çalıştırıyorsan: `--no-sandbox` gerekebilir (`./AppImage --no-sandbox`).
@@ -141,7 +141,7 @@ Sanal ekranda çalıştırıyorsan: `--no-sandbox` gerekebilir (`./AppImage --no
 ### 4.2 deb paketi (Debian / Ubuntu / Mint)
 
 ```bash
-sudo dpkg -i labirent-protokolu_1.0.0_amd64.deb
+sudo dpkg -i labirent-protokolu_1.0.1_amd64.deb
 # eksik bağımlılık olursa:
 sudo apt-get -f install
 ```
