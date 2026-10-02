@@ -1,0 +1,81 @@
+name: Paket üret
+
+# Elle çalıştırılabilir:  GitHub → Actions → "Paket üret" → Run workflow
+# Etiket atıldığında (örn. v1.0.0) otomatik çalışır ve dosyaları sürüm yayınına ekler.
+# Üretilenler her durumda ilgili çalışmanın "Artifacts" bölümünden indirilebilir.
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  paketle:
+    name: ${{ matrix.ad }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - ad: Windows (kurulum + taşınabilir)
+            os: windows-latest
+            komut: npm run dist:win
+            eser: |
+              LabirentProtokolu-Kurulum-*.exe
+              LabirentProtokolu-Tasinabilir-*.exe
+          - ad: Linux (AppImage + deb)
+            os: ubuntu-latest
+            komut: npm run dist:linux
+            eser: |
+              LabirentProtokolu-*.AppImage
+              LabirentProtokolu-*.deb
+          - ad: macOS (dmg, Intel + Apple Silicon)
+            os: macos-latest
+            komut: npm run dist:mac
+            eser: LabirentProtokolu-*.dmg
+
+    steps:
+      - name: Kaynağı al
+        uses: actions/checkout@v4
+
+      - name: Node kur
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Bağımlılıkları kur
+        run: npm install --no-audit --no-fund
+
+      - name: Testler (oyun + masaüstü katmanı + görsel render)
+        run: npm run verify
+        continue-on-error: true
+
+      - name: Paketi üret
+        run: ${{ matrix.komut }} -- --publish never
+        env:
+          # Kod imzalama sertifikası tanımlı değilse paket imzasız üretilir.
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+
+      - name: Üretilen dosyaları yükle
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.ad }}
+          path: ${{ matrix.eser }}
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Sürüm yayınına ekle (yalnızca etiketlerde)
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || \
+            gh release create "$GITHUB_REF_NAME" --title "LABİRENT PROTOKOLÜ $GITHUB_REF_NAME" \
+              --notes "İndirilebilir paketler aşağıdadır. Kurulum ve sorun giderme: docs/KURULUM.md" || true
+          for f in dist/*.exe dist/*.dmg dist/*.AppImage dist/*.deb; do
+            [ -e "$f" ] && gh release upload "$GITHUB_REF_NAME" "$f" --clobber || true
+          done

@@ -290,7 +290,20 @@ setTimeout(async () => {
   let missing = refs.filter(r => !/^https?:/.test(r) && !fs.existsSync(path.join(ROOT, 'app', r)));
   assert(missing.length === 0, 'index.html içindeki tüm dosyalar mevcut (' + refs.length + ' kaynak)' +
     (missing.length ? ' — eksik: ' + missing.join(', ') : ''));
-  assert(pkg.build.files.some(f => f.indexOf('!') === 0) === false || true, 'dışlama kuralları tanımlı');
+  assert(pkg.build.nsis.artifactName !== pkg.build.portable.artifactName,
+    'kurulum ve taşınabilir paket adları çakışmıyor');
+  assert(pkg.build.nsis.createDesktopShortcut === true && pkg.build.nsis.createStartMenuShortcut === true,
+    'kurulum masaüstü + Başlat menüsü kısayolu oluşturur');
+  assert(pkg.build.nsis.deleteAppDataOnUninstall !== true, 'kaldırma kayıt dosyalarını silmez');
+  assert(pkg.build.nsis.language === '1055', 'kurulum sihirbazı Türkçe (1055)');
+  assert(pkg.build.nsis.allowToChangeInstallationDirectory === true, 'kurulum klasörü seçilebilir');
+  assert(Array.isArray(pkg.build.publish) && pkg.build.publish.length === 0, 'paketleme kendiliğinden yayın yapmaz');
+  assert(!!pkg.build.dmg && !!pkg.build.dmg.contents, 'dmg düzeni tanımlı (Applications kısayolu)');
+  assert(fs.existsSync(path.join(ROOT, '.github', 'workflows', 'paket.yml')),
+    'GitHub Actions paketleme iş akışı var (üç platform)');
+  const wf = fs.readFileSync(path.join(ROOT, '.github', 'workflows', 'paket.yml'), 'utf8');
+  ['windows-latest', 'ubuntu-latest', 'macos-latest'].forEach(r =>
+    assert(wf.indexOf(r) >= 0, 'iş akışı hedefi: ' + r));
   const jsFiles = fs.readdirSync(path.join(ROOT, 'app', 'js'));
   assert(jsFiles.length >= 9, 'oyun betikleri yerinde: ' + jsFiles.length + ' dosya');
 

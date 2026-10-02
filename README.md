@@ -48,10 +48,15 @@ dosya konumları için: **[docs/KURULUM.md](docs/KURULUM.md)**
 
 | Platform | Dosya | Not |
 |---|---|---|
-| Windows | `Labirent Protokolu Setup x.y.z.exe` | NSIS kurulumu, klasör + kısayol seçimi |
-| Windows | `Labirent Protokolu x.y.z.exe` | Kurulumsuz taşınabilir sürüm (USB'den çalışır) |
-| macOS | `Labirent Protokolu-x.y.z.dmg` | Intel + Apple Silicon |
-| Linux | `Labirent Protokolu-x.y.z.AppImage` / `.deb` | `chmod +x` sonrası çift tıkla, ya da `dpkg -i` |
+| Windows | `LabirentProtokolu-Kurulum-1.0.0-x64.exe` | NSIS kurulumu (Türkçe sihirbaz), klasör + masaüstü/Başlat menüsü kısayolu |
+| Windows | `LabirentProtokolu-Tasinabilir-1.0.0-x64.exe` | Kurulumsuz taşınabilir sürüm (USB'den çalışır) |
+| macOS | `LabirentProtokolu-1.0.0-arm64.dmg` / `-x64.dmg` | Apple Silicon + Intel |
+| Linux | `LabirentProtokolu-1.0.0-x86_64.AppImage` / `.deb` | `chmod +x` sonrası çift tıkla, ya da `dpkg -i` |
+
+> **Kurulum dosyalarını indirmenin en kolay yolu:** GitHub → **Actions** → *Paket üret* →
+> **Run workflow**. Üç platform için paketler üretilir ve çalışmanın **Artifacts** bölümünden
+> indirilebilir; `v1.0.0` gibi bir etiket atarsan dosyalar doğrudan **Releases** sayfasına eklenir.
+> Kendi bilgisayarında derlemek istersen aşağıdaki adımlar yeterlidir.
 
 ### Kaynaktan çalıştırma (geliştirici)
 

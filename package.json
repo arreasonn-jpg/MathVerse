@@ -52,8 +52,18 @@
     },
     "win": {
       "target": [
-        { "target": "nsis", "arch": ["x64"] },
-        { "target": "portable", "arch": ["x64"] }
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
       ],
       "icon": "build/icon.ico",
       "artifactName": "LabirentProtokolu-${version}-${arch}.${ext}"
@@ -65,14 +75,22 @@
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "shortcutName": "LABİRENT PROTOKOLÜ",
-      "installerLanguages": ["tr_TR", "en_US"],
-      "language": "1033"
+      "installerLanguages": [
+        "tr_TR",
+        "en_US"
+      ],
+      "language": "1055",
+      "deleteAppDataOnUninstall": false,
+      "artifactName": "LabirentProtokolu-Kurulum-${version}-${arch}.${ext}"
     },
     "portable": {
-      "artifactName": "LabirentProtokolu-${version}-tasinabilir.${ext}"
+      "artifactName": "LabirentProtokolu-Tasinabilir-${version}-${arch}.${ext}"
     },
     "linux": {
-      "target": ["AppImage", "deb"],
+      "target": [
+        "AppImage",
+        "deb"
+      ],
       "icon": "build/icon.png",
       "category": "Game",
       "synopsis": "Labirent temalı birinci şahıs hayatta kalma korku oyunu",
@@ -80,18 +98,35 @@
       "artifactName": "LabirentProtokolu-${version}-${arch}.${ext}"
     },
     "mac": {
-      "target": [{ "target": "dmg", "arch": ["x64", "arm64"] }],
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ],
       "icon": "build/icon.icns",
       "category": "public.app-category.games",
       "darkModeSupport": true,
       "artifactName": "LabirentProtokolu-${version}-${arch}.${ext}"
     },
     "dmg": {
-      "title": "LABİRENT PROTOKOLÜ",
+      "title": "LABİRENT PROTOKOLÜ ${version}",
       "contents": [
-        { "x": 130, "y": 220, "type": "file" },
-        { "x": 410, "y": 220, "type": "link", "path": "/Applications" }
+        {
+          "x": 140,
+          "y": 220
+        },
+        {
+          "x": 420,
+          "y": 220,
+          "type": "link",
+          "path": "/Applications"
+        }
       ]
-    }
+    },
+    "publish": []
   }
 }
