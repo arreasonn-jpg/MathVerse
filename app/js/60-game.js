@@ -501,6 +501,13 @@
         MV.UI.toast(ok ? 'HIZLI YÜKLEME: SLOT 1' : 'SLOT 1 BOŞ');
         break;
       }
+      case 'raster': {
+        const cur = MV.Desktop.settings.read().gpuMode || 'auto';
+        const next = cur === 'cpu' ? 'gpu' : 'cpu';
+        this.applySetting('gpuMode', next);
+        MV.UI.toast('GRAFİK HATTI: ' + (next === 'cpu' ? 'CPU (yazılım)' : 'GPU (WebGL)'));
+        break;
+      }
       case 'screenshot': this.takeScreenshot(); break;
       case 'fullscreen': {
         const s2 = MV.Desktop.settings.read();

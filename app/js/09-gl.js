@@ -172,6 +172,7 @@
       this._resizeTargets(64, 64);
       this.ok = true;
       this.status = 'GPU etkin (' + (this.rendererName ? this.rendererName.slice(0, 42) : ver) + ')';
+      if (MV.logMsg) MV.logMsg('[GL] ' + this.status);
       return this;
     } catch (e) {
       this.ok = false;

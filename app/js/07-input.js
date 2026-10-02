@@ -26,6 +26,7 @@
     { id: 'map',       label: 'Harita',            keys: ['KeyM'],                   group: 'ARAYÜZ' },
     { id: 'journal',   label: 'Günlük',            keys: ['Tab'],                    group: 'ARAYÜZ' },
     { id: 'pause',     label: 'Duraklat',          keys: ['Escape'],                 group: 'ARAYÜZ' },
+    { id: 'raster',    label: 'Grafik hattı (GPU/CPU)', keys: ['F8'],                 group: 'ARAYÜZ' },
     { id: 'achievements', label: 'Başarımlar',     keys: ['F2'],                     group: 'ARAYÜZ' },
     { id: 'quicksave', label: 'Hızlı kaydet',      keys: ['F5'],                     group: 'SİSTEM' },
     { id: 'quickload', label: 'Hızlı yükle',       keys: ['F9'],                     group: 'SİSTEM' },
