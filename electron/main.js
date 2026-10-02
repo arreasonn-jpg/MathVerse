@@ -11,7 +11,7 @@ const fs = require('fs');
 const os = require('os');
 
 const APP_NAME = 'LABİRENT PROTOKOLÜ';
-const GAME_VERSION = '1.0.0';
+const GAME_VERSION = '1.0.1';
 const MAX_SLOTS = 4;                 // 1..3 oyuncu kaydı + 0: otomatik kayıt
 const AUTO_SLOT = 0;
 
@@ -159,6 +159,24 @@ function saveWindowState() {
 }
 
 /* ---------------- kayıt dosyaları ---------------- */
+/* Başarımlar kayıt slotlarından bağımsız tek bir profil dosyasında tutulur. */
+function achievementsPath() { return path.join(userDir(), 'achievements.json'); }
+function readAchievements() {
+  try { return fs.readFileSync(achievementsPath(), 'utf8'); } catch (e) { return null; }
+}
+function writeAchievements(json) {
+  if (typeof json !== 'string' || json.length > 256 * 1024) return false;
+  try {
+    const o = JSON.parse(json);
+    if (!o || typeof o !== 'object' || Array.isArray(o)) return false;
+  } catch (e) { logLine('geçersiz başarım verisi reddedildi'); return false; }
+  try {
+    fs.mkdirSync(userDir(), { recursive: true });
+    fs.writeFileSync(achievementsPath(), json);
+    return true;
+  } catch (e) { logLine('başarım dosyası yazılamadı: ' + e.message); return false; }
+}
+
 function readSlot(slot) {
   try { return fs.readFileSync(slotFile(slot), 'utf8'); } catch (e) { return null; }
 }
@@ -277,6 +295,8 @@ function buildMenu() {
         { type: 'separator' },
         { label: 'Kaydet', accelerator: 'CmdOrCtrl+S', click: () => send('menu', 'save') },
         { label: 'Kayıt Yükle…', accelerator: 'CmdOrCtrl+L', click: () => send('menu', 'load') },
+        { type: 'separator' },
+        { label: 'Başarımlar', accelerator: 'F2', click: () => send('menu', 'achievements') },
         { type: 'separator' },
         { label: 'Duraklat (Esc)', click: () => send('menu', 'pause') },
         { type: 'separator' },
@@ -401,6 +421,10 @@ function registerIpc() {
   ipcMain.on('save:list', (e) => { e.returnValue = allSlots(); });
   ipcMain.on('save:dir', (e) => { e.returnValue = savesDir(); });
 
+  /* başarımlar */
+  ipcMain.on('achievements:read', (e) => { e.returnValue = readAchievements(); });
+  ipcMain.on('achievements:write', (e, json) => { e.returnValue = writeAchievements(json); });
+
   /* ayarlar */
   ipcMain.on('settings:read', (e) => { e.returnValue = readSettings(); });
   ipcMain.on('settings:write', (e, patch) => { e.returnValue = writeSettings(patch); });
@@ -417,6 +441,7 @@ function registerIpc() {
       userData: userDir(),
       saves: savesDir(),
       shots: shotsDir(),
+      achievements: achievementsPath(),
       screens: screen.getAllDisplays().map(d => ({ w: d.size.width, h: d.size.height }))
     };
   });

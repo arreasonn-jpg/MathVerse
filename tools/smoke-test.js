@@ -187,6 +187,7 @@ const screens = [
   ['yeni deney onayı', () => UI.confirmNew()],
   ['ölüm', () => UI.death('griever')],
   ['kazanma', () => UI.win()],
+  ['başarımlar', () => UI.openAchievements('back')],
   ['mesaj', () => UI.msg('TEST', 'deneme')],
   ['altyazı', () => UI.subtitle('test')],
   ['HUD ölçeği', () => UI.setHudScale(1.15)],
@@ -199,6 +200,35 @@ for (const [name, fn] of screens) {
 }
 UI.closeModal();
 step(30, 1 / 60);
+
+console.log('--- başarımlar ---');
+{
+  const total = G.achievementTotal();
+  assert(total >= 10, 'başarım tanımı yüklendi (' + total + ' adet)');
+  MV.Desktop.achievements.write('{}');
+  G.loadAchievements();
+  assert(G.achievementCount() === 0, 'profil sıfırdan başladı');
+  G.day = 3; G.meta.kills = 5; G.meta.crafted = 2;
+  G.tools = { fener: 1, izleyici: 1, mizrak: 1, halat: 1 };
+  G.flags.boxRead = true; G.flags.hiveDone = true; G.runesRead = [0, 1, 2, 3, 4, 5, 6, 7];
+  const got = G.checkAchievements();
+  assert(got >= 10, 'koşullar sağlanınca başarımlar açıldı (' + got + '/' + total + ')');
+  const stored = MV.Desktop.achievements.list();
+  assert(stored['ilk-kan'] > 0 && stored['tam-takim'] > 0, 'başarımlar profile yazıldı');
+  assert(!stored['kacis'], 'henüz kaçılmadığı için KAÇIŞ kilitli kaldı');
+  const snap = MV.Desktop.achievements.read();
+  G.checkAchievements();
+  assert(MV.Desktop.achievements.read() === snap, 'aynı başarım ikinci kez yazılmaz');
+  assert(G.unlockAchievement('ilk-kan') === false, 'açılmış başarım tekrar açılamaz');
+  assert(G.unlockAchievement('olmayan-basarim') === false, 'tanımsız başarım yok sayıldı');
+  G.won = true;
+  G.checkAchievements();
+  assert(MV.Desktop.achievements.list()['kacis'] > 0, 'kaçış başarımı kazanınca açıldı');
+  G.won = false;
+  UI.openAchievements('title');
+  assert(UI.modalOpen(), 'başarım ekranı açıldı');
+  UI.closeModal();
+}
 
 console.log('--- oyun kolu ---');
 G.paused = false;

@@ -57,6 +57,25 @@
     escape: { text: 'KAÇ', sub: 'Kapağın altından geçtin — koş', hint: '' }
   };
 
+  /* ============================================================
+     BAŞARIMLAR — kayıt slotlarından bağımsız, profilde saklanır
+     ============================================================ */
+  const ACHIEVEMENTS = [
+    { id: 'kutu', name: 'KUTU OKUNDU', desc: 'Kayran’ın ortasındaki Kutu terminalini açtın.', test: (g) => !!g.flags.boxRead },
+    { id: 'ilk-veri', name: 'İLK VERİ', desc: 'İlk rune verisini okudun.', test: (g) => g.runesRead.length >= 1 },
+    { id: 'sekiz-veri', name: 'SEKİZ BASAMAK', desc: 'Sekiz sektörün rune verisini topladın.', test: (g) => g.runesRead.length >= 8 },
+    { id: 'ilk-gece', name: 'İLK GECE', desc: 'Kapıların kapandığı ilk geceyi atlattın.', test: (g) => g.day >= 2 },
+    { id: 'uc-safak', name: 'ÜÇÜNCÜ ŞAFAK', desc: 'Hayatta kalıp 3. güne ulaştın.', test: (g) => g.day >= 3 },
+    { id: 'yedi-gun', name: 'YEDİ GÜN', desc: '7. güne ulaştın — WICKED seni hâlâ izliyor.', test: (g) => g.day >= 7 },
+    { id: 'ilk-kan', name: 'İLK KAN', desc: 'İlk Griever’ı devirdin.', test: (g) => g.meta.kills >= 1 },
+    { id: 'avci', name: 'AVCI', desc: 'Beş Griever devirdin.', test: (g) => g.meta.kills >= 5 },
+    { id: 'zanaat', name: 'ZANAATKÂR', desc: 'Kutu terminalinde ilk aracını ürettin.', test: (g) => (g.meta.crafted || 0) >= 1 },
+    { id: 'tam-takim', name: 'TAM TAKIM', desc: 'Fener, izleyici, mızrak ve halat: dördünü de ürettin.',
+      test: (g) => g.tools.fener > 0 && g.tools.izleyici > 0 && g.tools.mizrak > 0 && g.tools.halat > 0 },
+    { id: 'kovan', name: 'KOVAN', desc: 'Griever kovanına indin.', test: (g) => !!g.flags.hiveDone },
+    { id: 'kacis', name: 'KAÇIŞ', desc: 'π kodunu girdin ve Labirent’ten kaçtın.', test: (g) => !!g.won }
+  ];
+
   const G = {
     running: false, paused: false, dead: false, won: false,
     world: null, tex: null, player: null, view: null,
@@ -68,7 +87,9 @@
     tools: { fener: 0, izleyici: 0, mizrak: 0, halat: 0 },
     tool: 0, torchCharge: 100, hasKey: false, hiveOpen: false, hatchCode: '', codeOk: false,
     msgQueue: [], lastSafe: { x: 0, y: 0 }, falling: 0, fear: 0, music: 0,
-    lastHeart: 0, stepAcc: 0, meta: { runs: 1, kills: 0, deaths: 0, time: 0, sections: 0 },
+    lastHeart: 0, stepAcc: 0, meta: { runs: 1, kills: 0, deaths: 0, time: 0, sections: 0, crafted: 0 },
+    /* başarımlar: profil düzeyinde, kayıtlardan bağımsız */
+    achieved: {}, achT: 0,
     flags: {}, cinematic: null, seed: 1, saveT: 0, hourAnnounced: false,
     /* masaüstü ayarları */
     sensitivity: 1.0, invertY: false, shake: true, settings: null,
@@ -91,6 +112,7 @@
     /* masaüstü ayarları (varsa dosyadan, yoksa localStorage'dan) */
     this.settings = MV.Desktop.settings.read();
     MV.Desktop.apply(this.settings);
+    this.loadAchievements();
 
     /* son durum: otomatik kayıt (slot 0) → yoksa yeni deney */
     const auto = MV.Desktop.save.read(0);
@@ -146,6 +168,10 @@
         if (!MV.UI.modalOpen()) MV.UI.togglePause();
         else MV.UI.closeModal();
         break;
+      case 'achievements':
+        if (!MV.UI.modalOpen()) this.paused = true;
+        MV.UI.openAchievements(MV.UI.modalOpen() ? 'back' : '');
+        break;
       case 'quality': {
         const order = ['yuksek', 'orta', 'performans'];
         const cur = this.settings.quality || 'orta';
@@ -198,6 +224,7 @@
   };
 
   G.newGame = function (seed) {
+    // not: başarımlar profil düzeyinde kalır, yeni deneyde sıfırlanmaz
     this.seed = seed >>> 0;
     this.day = 1; this.phase = 'day'; this.clock = DAY_LEN * 0.35;
     this.grievers = []; this.beetles = []; this.particles = [];
@@ -454,6 +481,8 @@
   G.update = function (dt) {
     const P = this.player, w = this.world;
     this.meta.time += dt;
+    this.achT = (this.achT || 0) + dt;
+    if (this.achT > 0.75) { this.achT = 0; this.checkAchievements(); }
     this.pollGamepad(dt);
     /* kaçış sinematiği: kapak açılır, ışık yükselir, rapor gelir */
     if (this.cinematic) {
@@ -573,6 +602,39 @@
   G.purge = function () {
     this.queueMsg('PROTOKOL: TEMİZLİK', 'Deney sonlandı. Labirent seni içine alıyor.');
     this.startDeath('temizlik', 'WICKED deneyi kapattı. Labirent sustu.');
+  };
+
+  /* ---------- başarımlar ---------- */
+  G.loadAchievements = function () {
+    const list = MV.Desktop.achievements.list();
+    this.achieved = (list && typeof list === 'object') ? list : {};
+    return this.achieved;
+  };
+  G.unlockAchievement = function (id) {
+    const def = ACHIEVEMENTS.filter(a => a.id === id)[0];
+    if (!def || this.achieved[id]) return false;
+    this.achieved[id] = Date.now();
+    MV.Desktop.achievements.write(JSON.stringify(this.achieved));
+    MV.logMsg('başarım açıldı: ' + def.name);
+    if (MV.UI) {
+      if (MV.UI.achievement) MV.UI.achievement(def);
+      else if (MV.UI.toast) MV.UI.toast('BAŞARIM: ' + def.name);
+    }
+    return true;
+  };
+  G.checkAchievements = function () {
+    for (const a of ACHIEVEMENTS) {
+      if (this.achieved[a.id]) continue;
+      let ok = false;
+      try { ok = !!a.test(this); } catch (e) { ok = false; }
+      if (ok) this.unlockAchievement(a.id);
+    }
+    return this.achievementCount();
+  };
+  G.achievementCount = function () { return Object.keys(this.achieved).length; };
+  G.achievementTotal = function () { return ACHIEVEMENTS.length; };
+  G.achievementList = function () {
+    return ACHIEVEMENTS.map(a => ({ id: a.id, name: a.name, desc: a.desc, at: this.achieved[a.id] || 0 }));
   };
 
   /* ---------- oyun kolu (Xbox/DualSense/8BitDo…) ---------- */
@@ -812,13 +874,18 @@
   G.interact = function () {
     const p = this.nearProp;
     if (!p) { MV.UI.toast('BURADA BİR ŞEY YOK'); A.deny(); return; }
-    if (p.kind === 'box') { MV.UI.openCraft(); return; }
+    if (p.kind === 'box') {
+      this.flags.boxRead = true;
+      if (this.objective === 'explore') this.setObjective('runes');
+      this.checkAchievements();
+      MV.UI.openCraft();
+      return;
+    }
     if (p.kind === 'archive') {
       MV.UI.openArchive();
       if (this.objective === 'explore') this.setObjective('runes');
       return;
     }
-    if (p.kind === 'box' && this.objective === 'explore') this.setObjective('runes');
     if (p.kind === 'hut') { MV.UI.openHut(); return; }
     if (p.kind === 'lamp') { MV.UI.subtitle('Direk sallanıyor: "WICKED, gece için ışık bırakmıyor."'); return; }
     if (p.kind === 'hive') { this.hiveInteract(); return; }
@@ -1065,6 +1132,8 @@
     else if (rec.id === 'serum') this.resources.serum++;
     else if (rec.id === 'gida') this.resources.gida++;
     A.unlock();
+    this.meta.crafted = (this.meta.crafted || 0) + 1;
+    this.checkAchievements();
     MV.UI.toast('ÜRETİLDİ: ' + rec.name);
     MV.logMsg('Üretim: ' + rec.name);
     this.save();
@@ -1118,6 +1187,7 @@
   };
   G.win = function () {
     this.won = true;
+    this.checkAchievements();
     MV.Desktop.save.remove(0);      // otomatik kayıt temizlenir: deney tamamlandı
     MV.UI.win();
   };

@@ -21,6 +21,12 @@ const api = {
     dir: () => ipcRenderer.sendSync('save:dir')
   },
 
+  /* --- başarımlar (slotlardan bağımsız profil) --- */
+  achievements: {
+    read: () => ipcRenderer.sendSync('achievements:read'),
+    write: (json) => ipcRenderer.sendSync('achievements:write', json)
+  },
+
   /* --- ayarlar --- */
   settings: {
     read: () => ipcRenderer.sendSync('settings:read'),

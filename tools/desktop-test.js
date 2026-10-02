@@ -157,6 +157,11 @@ setTimeout(async () => {
   const game = menuTemplate.find(m => m.label === 'Oyun');
   const saveItem = game.submenu.find(i => i.accelerator === 'CmdOrCtrl+S');
   assert(!!saveItem, 'menüde Kaydet (Ctrl+S) var');
+  const achItem = game.submenu.find(i => i.accelerator === 'F2');
+  assert(!!achItem, 'menüde Başarımlar (F2) var');
+  sends.length = 0;
+  achItem.click();
+  assert(sends.some(s => s.channel === 'menu' && s.payload === 'achievements'), 'başarım komutu oyuna iletildi');
   sends.length = 0;
   saveItem.click();
   assert(sends.some(s => s.channel === 'menu' && s.payload === 'save'), 'menü tıklaması oyuna iletildi (menu/save)');
@@ -182,6 +187,17 @@ setTimeout(async () => {
   assert(ipc('save:write', [2, 'bu bir json değil {{{']) === false, 'bozuk kayıt verisi reddedildi (dosya yazılmadı)');
   assert(!fs.existsSync(path.join(USER, 'saves', 'slot-2.json')), 'reddedilen veri diske düşmedi');
   assert(ipc('save:write', [2, 'x'.repeat(3 * 1024 * 1024)]) === false, 'aşırı büyük kayıt reddedildi');
+
+  console.log('--- başarımlar ---');
+  const achJson = JSON.stringify({ 'ilk-kan': 1700000000000, 'ilk-gece': 1700000009999 });
+  assert(ipc('achievements:write', [achJson]) === true, 'başarım profili yazıldı');
+  assert(fs.existsSync(path.join(USER, 'achievements.json')), 'achievements.json diskte');
+  assert(ipc('achievements:read') === achJson, 'başarım profili geri okundu');
+  assert(ipc('achievements:write', ['bu bir json değil {{{']) === false, 'bozuk başarım verisi reddedildi');
+  assert(ipc('achievements:write', ['[1,2,3]']) === false, 'dizi biçimindeki başarım verisi reddedildi');
+  assert(ipc('achievements:write', ['y'.repeat(300 * 1024)]) === false, 'aşırı büyük başarım verisi reddedildi');
+  assert(ipc('achievements:read') === achJson, 'reddedilen veri dosyayı bozmadı');
+  assert(ipc('app:info').achievements === path.join(USER, 'achievements.json'), 'app:info başarım yolunu bildiriyor');
 
   console.log('--- ayarlar ---');
   const def = ipc('settings:read');
@@ -258,6 +274,10 @@ setTimeout(async () => {
   assert(syncCalls.some(c => c[0] === 'save:write' && c[1] === 1), 'save.write → save:write kanalı');
   api.settings.read();
   assert(syncCalls.some(c => c[0] === 'settings:read'), 'settings.read → settings:read kanalı');
+  api.achievements.read();
+  assert(syncCalls.some(c => c[0] === 'achievements:read'), 'achievements.read → achievements:read kanalı');
+  api.achievements.write('{"ilk-kan":1}');
+  assert(syncCalls.some(c => c[0] === 'achievements:write'), 'achievements.write → achievements:write kanalı');
   api.quit();
   assert(syncCalls.some(c => c[0] === 'app:quit'), 'quit → app:quit kanalı');
   assert(typeof api.on === 'function', 'olay dinleme API’si var');
@@ -296,6 +316,14 @@ setTimeout(async () => {
     'kurulum masaüstü + Başlat menüsü kısayolu oluşturur');
   assert(pkg.build.nsis.deleteAppDataOnUninstall !== true, 'kaldırma kayıt dosyalarını silmez');
   assert(pkg.build.nsis.language === '1055', 'kurulum sihirbazı Türkçe (1055)');
+  assert(pkg.build.win.target.some(t => (t.target || t) === 'zip'), 'Windows için kurulumsuz klasör (zip) paketi tanımlı');
+  assert(pkg.build.copyright && pkg.build.copyright.indexOf('2026') >= 0, 'paket telif bilgisi gömülü (dosya özellikleri)');
+  assert(pkg.build.win.requestedExecutionLevel === 'asInvoker', 'yönetici izni istemez (asInvoker)');
+  const wf2 = fs.readFileSync(path.join(ROOT, '.github', 'workflows', 'paket.yml'), 'utf8');
+  assert(wf2.indexOf('sha256sum') >= 0 && wf2.indexOf('SHA256SUMS') >= 0, 'CI sağlama toplamı (SHA-256) üretir');
+  const kurulum = fs.readFileSync(path.join(ROOT, 'docs', 'KURULUM.md'), 'utf8');
+  assert(/SmartScreen/.test(kurulum) && /Unblock-File/.test(kurulum), 'kurulum kılavuzu SmartScreen ve engel kaldırma adımlarını içerir');
+  assert(pkg.version === '1.0.1', 'sürüm 1.0.1');
   assert(pkg.build.nsis.allowToChangeInstallationDirectory === true, 'kurulum klasörü seçilebilir');
   assert(Array.isArray(pkg.build.publish) && pkg.build.publish.length === 0, 'paketleme kendiliğinden yayın yapmaz');
   assert(!!pkg.build.dmg && !!pkg.build.dmg.contents, 'dmg düzeni tanımlı (Applications kısayolu)');

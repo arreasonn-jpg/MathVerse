@@ -23,18 +23,22 @@ jobs:
           - ad: Windows (kurulum + taşınabilir)
             os: windows-latest
             komut: npm run dist:win
+            kisa: win
             eser: |
               LabirentProtokolu-Kurulum-*.exe
               LabirentProtokolu-Tasinabilir-*.exe
+              LabirentProtokolu-Klasor-*.zip
           - ad: Linux (AppImage + deb)
             os: ubuntu-latest
             komut: npm run dist:linux
+            kisa: linux
             eser: |
               LabirentProtokolu-*.AppImage
               LabirentProtokolu-*.deb
           - ad: macOS (dmg, Intel + Apple Silicon)
             os: macos-latest
             komut: npm run dist:mac
+            kisa: mac
             eser: LabirentProtokolu-*.dmg
 
     steps:
@@ -58,6 +62,20 @@ jobs:
         env:
           # Kod imzalama sertifikası tanımlı değilse paket imzasız üretilir.
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+
+      - name: Sağlama toplamı üret (SHA-256)
+        shell: bash
+        run: |
+          cd dist
+          if command -v sha256sum >/dev/null 2>&1; then S="sha256sum"; else S="shasum -a 256"; fi
+          $S *.exe *.zip *.dmg *.AppImage *.deb 2>/dev/null > "SHA256SUMS-${{ matrix.kisa }}.txt" || true
+          cat "SHA256SUMS-${{ matrix.kisa }}.txt" 2>/dev/null || true
+          {
+            echo "### Sağlama toplamları (${{ matrix.kisa }})"
+            echo '```'
+            cat "SHA256SUMS-${{ matrix.kisa }}.txt" 2>/dev/null || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Paket çıktısını listele
         shell: bash
@@ -109,6 +127,6 @@ jobs:
           if ! gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
             gh release create "$GITHUB_REF_NAME" --title "LABİRENT PROTOKOLÜ $GITHUB_REF_NAME" --notes "$NOTES" || true
           fi
-          for f in dist/*.exe dist/*.dmg dist/*.AppImage dist/*.deb; do
+          for f in dist/*.exe dist/*.zip dist/*.dmg dist/*.AppImage dist/*.deb dist/SHA256SUMS-*.txt; do
             [ -e "$f" ] && gh release upload "$GITHUB_REF_NAME" "$f" --clobber || true
           done

@@ -4,6 +4,60 @@ Bu kılavuz oyunu **Windows, macOS ve Linux** bilgisayarlara kurmak, taşımak v
 gereken her adımı içerir. Oyun gerçek bir masaüstü uygulamasıdır; tarayıcı gerekmez, internet
 bağlantısı kullanmaz.
 
+
+---
+
+## 0. Windows "SmartScreen" uyarısı (çok önemli)
+
+İndirdiğin `.exe` dosyasını çalıştırınca şu pencere çıkabilir:
+
+> **Windows kişisel bilgisayarınızı korudu**
+> Microsoft Defender SmartScreen tanınmayan bir uygulamanın başlamasını engelledi.
+
+**Bu bir virüs uyarısı değildir.** Windows, internetten indirilen ve dijital olarak
+**imzalanmamış** her yeni program için bu ekranı gösterir. Kod imzalama sertifikası yıllık
+ücretli olduğu için bu sürüm imzasızdır; dosya tanınmaya başlayana kadar da uyarı çıkar.
+
+### Çözüm A — izin vererek çalıştır (10 saniye)
+
+1. Uyarı penceresinde **Ek bilgi** (More info) yazısına tıkla.
+2. Altında çıkan **Yine de yükle** (Run anyway) düğmesine bas.
+3. Oyun açılır. Bu izni her sürümde bir kez vermen yeterlidir.
+
+### Çözüm B — indirme engelini kaldır (uyarı hiç çıkmaz)
+
+Windows, internetten inen dosyalara "bu başka bilgisayardan geldi" işareti (Mark-of-the-Web) koyar;
+SmartScreen uyarısını tetikleyen şey bu işarettir. Kaldırınca uyarı çıkmaz:
+
+- **Dosya Gezgini:** dosyaya sağ tık → **Özellikler** → alt kısımdaki **Engellemeyi kaldır** kutusunu
+  işaretle → **Tamam**.
+- **PowerShell (tek satır):**
+
+```powershell
+Unblock-File "$env:USERPROFILE\Downloads\LabirentProtokolu-Kurulum-1.0.1-x64.exe"
+```
+
+Klasör (zip) sürümünü indirdiysen önce arşivi aç, sonra klasördekilerin tamamını aç:
+
+```powershell
+Expand-Archive "$env:USERPROFILE\Downloads\LabirentProtokolu-Klasor-1.0.1-x64.zip" -DestinationPath "$env:USERPROFILE\Desktop\Labirent"
+Get-ChildItem "$env:USERPROFILE\Desktop\Labirent" -Recurse | Unblock-File
+```
+
+### Dosyanın gerçek olduğunu doğrula (SHA-256)
+
+Her sürümün yanında `SHA256SUMS-win.txt` yayınlanır. İndirdiğin dosyanın özetini karşılaştır:
+
+```powershell
+Get-FileHash -Algorithm SHA256 "$env:USERPROFILE\Downloads\LabirentProtokolu-Kurulum-1.0.1-x64.exe"
+```
+
+Çıkan değer, `SHA256SUMS-win.txt` içindeki satırla **birebir** aynı olmalı. Eşleşiyorsa dosya
+bozulmamış ve değiştirilmemiş demektir.
+
+> Not: Bu uyarı yalnızca Windows'a özgüdür. macOS'te "geliştirici doğrulanamadı" uyarısı için
+> bölüm 3'e, Linux'ta ise AppImage'a çalıştırma izni vermek için bölüm 4'e bak.
+
 ---
 
 ## 1. Sistem gereksinimleri
@@ -43,13 +97,19 @@ bağlantısı kullanmaz.
 
 Kurulum yeri (varsayılan): `%LOCALAPPDATA%\Programs\Labirent Protokolu`
 
-### 2.2 Taşınabilir sürüm (portable)
+### 2.2 Klasör (zip) sürümü — kurulum da yok, uyarı da yok
+
+`LabirentProtokolu-Klasor-1.0.1-x64.zip` dosyasını indir; **bölüm 0 / Çözüm B**'deki `Unblock-File`
+komutunu arşive uygula, klasöre çıkar ve içindeki `LABIRENT PROTOKOLU.exe` dosyasına çift tıkla.
+Kurulum yapılmaz, kayıt defteri değişmez; oyunu bir USB belleğe bile kopyalayabilirsin.
+
+### 2.3 Taşınabilir sürüm (portable)
 
 `LabirentProtokolu-Tasinabilir-1.0.0-x64.exe` kurulum gerektirmez: dosyayı bir klasöre ya da USB belleğe kopyala ve
 çift tıkla. Kayıtlar ve ayarlar yine bilgisayarın kullanıcı klasörüne yazılır (bkz. bölüm 5);
 taşınabilir çalıştırılabilir dosyanın yanına veri bırakmaz.
 
-### 2.3 Kaldırma
+### 2.4 Kaldırma
 
 **Ayarlar → Uygulamalar → Labirent Protokolü → Kaldır**, ya da
 `%LOCALAPPDATA%\Programs\Labirent Protokolu\Uninstall Labirent Protokolu.exe`.
@@ -107,6 +167,8 @@ rm ~/.local/share/applications/*labirent*  # AppImage kısayolu varsa
 | Günlük | `…\LABİRENT PROTOKOLÜ\labirent.log` | `…/labirent.log` | `…/labirent.log` |
 | Ekran görüntüleri | `%USERPROFILE%\Pictures\Labirent Protokolu\` | `~/Pictures/Labirent Protokolu/` | `~/Pictures/Labirent Protokolu/` |
 
+- **Başarımlar** `achievements.json` içinde tutulur; kayıt slotlarından bağımsızdır, yeni deney
+  başlatsan da silinmez (oyun içinde `F2` ya da Başarımlar ekranı).
 - **Slot 0** otomatik kayıttır (20 saniyede bir ve çıkışta). **1–3** elle kayıttır.
 - Oyun içinden **Ayarlar → Kayıt klasörü** satırındaki `AÇ` düğmesi ilgili klasörü dosya
   yöneticisinde açar.

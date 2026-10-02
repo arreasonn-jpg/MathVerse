@@ -87,6 +87,19 @@ function makeDesktopAPI(dir) {
       },
       dir() { return path.join(dir, 'saves'); }
     },
+    /* başarımlar: gerçek main.js gibi tek profil dosyası */
+    achievements: {
+      read() { try { return fs.readFileSync(path.join(dir, 'achievements.json'), 'utf8'); } catch (e) { return null; } },
+      write(json) {
+        if (typeof json !== 'string' || json.length > 256 * 1024) return false;
+        try {
+          const o = JSON.parse(json);
+          if (!o || typeof o !== 'object' || Array.isArray(o)) return false;
+        } catch (e) { return false; }
+        try { fs.writeFileSync(path.join(dir, 'achievements.json'), json); return true; } catch (e) { return false; }
+      }
+    },
+
     settings: {
       read() {
         try { return Object.assign({}, DEFAULT_SETTINGS, JSON.parse(fs.readFileSync(settingsFile, 'utf8'))); }

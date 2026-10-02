@@ -24,6 +24,7 @@
 
   const LS_SETTINGS = 'labirent-settings-v1';
   const LS_SLOT = (s) => 'labirent-slot-' + s + '-v1';
+  const LS_ACH = 'labirent-basarim-v1';
 
   const bridge = (typeof window !== 'undefined') ? window.desktopAPI : null;
   const isDesktop = !!(bridge && bridge.isDesktop);
@@ -40,7 +41,7 @@
     info() {
       if (isDesktop) { try { return bridge.info(); } catch (e) { } }
       return {
-        version: '1.0.0-tarayıcı', platform: 'tarayıcı', arch: '-',
+        version: '1.0.1-tarayıcı', platform: 'tarayıcı', arch: '-',
         electron: '-', chrome: navigator.userAgent, node: '-',
         userData: '-', saves: 'localStorage', shots: '-', screens: []
       };
@@ -98,6 +99,28 @@
         if (isDesktop) { try { return bridge.save.dir(); } catch (e) { } }
         return 'tarayıcı: localStorage';
       }
+    },
+
+    /* ---------------- başarımlar ----------------
+       Kayıt slotlarından bağımsız tek profil: yeni deney başlatınca da korunur. */
+    achievements: {
+      read() {
+        if (isDesktop) { try { return bridge.achievements.read(); } catch (e) { return null; } }
+        return lsGet(LS_ACH);
+      },
+      write(json) {
+        if (isDesktop) { try { return !!bridge.achievements.write(json); } catch (e) { return false; } }
+        return lsSet(LS_ACH, json);
+      },
+      list() {
+        const raw = this.read();
+        if (!raw) return {};
+        try {
+          const o = JSON.parse(raw);
+          return (o && typeof o === 'object' && !Array.isArray(o)) ? o : {};
+        } catch (e) { return {}; }
+      },
+      clear() { return this.write('{}'); }
     },
 
     /* ---------------- uygulama ---------------- */

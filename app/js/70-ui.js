@@ -115,6 +115,7 @@
           anyManual ? { label: 'KAYIT YÜKLE', cls: 'wide', fn: () => this.openSaveSlots('load') } : null,
           { label: hasAny ? 'YENİ DENEY' : 'DENEYE BAŞLA', cls: (hasAny ? 'wide' : 'primary wide'), fn: () => this.confirmNew() },
           { label: 'AYARLAR', cls: 'wide', fn: () => this.openSettings(true) },
+          { label: 'BAŞARIMLAR (' + G.achievementCount() + '/' + G.achievementTotal() + ')', cls: 'wide', fn: () => this.openAchievements('title') },
           { label: 'KONTROLLER', cls: 'wide', fn: () => this.showControls(true) },
           MV.Desktop.isDesktop ? { label: 'ÇIKIŞ', cls: 'danger wide', fn: () => MV.Desktop.quit() } : null
         ].filter(Boolean),
@@ -301,6 +302,35 @@
       if (svd) svd.onclick = () => MV.Desktop.openFolder('saves');
     },
 
+    /* ============================================================
+       BAŞARIMLAR
+       ============================================================ */
+    achievement(def) {
+      MV.Audio.unlock();
+      this.toast('★ BAŞARIM: ' + def.name);
+    },
+    openAchievements(from) {
+      const G = this.refs.G;
+      const list = G.achievementList();
+      const got = list.filter(a => a.at).length;
+      const rows = list.map(a => {
+        const when = a.at ? new Date(a.at).toLocaleDateString('tr-TR') : 'kilitli';
+        return '<div class="achRow' + (a.at ? ' got' : '') + '">' +
+          '<b>' + (a.at ? '★' : '☆') + ' ' + a.name + '</b>' +
+          '<span>' + a.desc + '</span>' +
+          '<i>' + when + '</i></div>';
+      }).join('');
+      this.modal({
+        kicker: 'WICKED KAYDI', title: 'BAŞARIMLAR — ' + got + ' / ' + list.length,
+        html: '<div class="achList">' + rows + '</div>' +
+          '<p class="dim" style="margin-top:12px">Başarımlar kayıt slotlarından bağımsız saklanır; yeni deney başlatsan da kaybolmaz.</p>',
+        buttons: [{
+          label: from ? 'GERİ' : 'KAPAT', cls: 'primary wide',
+          fn: () => (from === 'title' ? this.showTitle() : (from === 'pause' ? this.togglePause() : this.reopen()))
+        }],
+        escClose: true
+      });
+    },
     showControls(back) {
       const G = this.refs.G;
       this.modal({
@@ -367,6 +397,8 @@
        MODAL
        ============================================================ */
     modal(cfg) {
+      // bir önceki ekranı sakla: 'GERİ' düğmeleri buraya döner
+      if (this.modalShown && this.modalCfg) this._returnCfg = this.modalCfg;
       const m = this.refs.modal, o = this.refs.overlay;
       m.classList.remove('hidden'); o.classList.remove('hidden');
       m.className = 'glitchy';
@@ -393,8 +425,18 @@
       this.modalShown = true;
       this.modalCfg = cfg;
       this.modalActions = (cfg.buttons || []);
+      if (cfg.onShow) cfg.onShow();          // tuval/bağlama gerektiren ekranlar için
+    },
+    /* önceki ekranı yeniden aç (başarım/kontroller gibi ara ekranlardan dönüş) */
+    reopen() {
+      const prev = this._returnCfg;
+      if (!prev) { this.closeModal(); return; }
+      this._returnCfg = null;
+      this.modalShown = false;               // geri dönüşte tekrar sarmasın
+      this.modal(prev);
     },
     closeModal() {
+      this._returnCfg = null;
       this.refs.modal.classList.add('hidden');
       this.refs.overlay.classList.add('hidden');
       this.modalShown = false;
@@ -691,11 +733,16 @@
           '<div class="dim" style="margin-top:8px">Harita yalnızca yürüdüğün yerleri hatırlar. Kaydırma sonrası eski bilgiler yanıltır.</div>' +
           '</div></div>',
         buttons: [{ label: 'KAPAT', cls: 'primary wide', fn: () => { this.mapOpen = false; this.closeModal(); } }],
+        onShow: () => this.bindMap(G),
         escClose: true
       });
+    },
+    bindMap(G) {
       this.mapCanvas = document.getElementById('map-c');
-      this.mctx = this.mapCanvas.getContext('2d');
-      this.drawMap(G);
+      if (this.mapCanvas && this.mapCanvas.getContext) {
+        this.mctx = this.mapCanvas.getContext('2d');
+        this.drawMap(G);
+      }
     },
     drawMap(G) {
       const c = this.mctx; if (!c) return;
@@ -984,6 +1031,7 @@
           { label: 'KAYDET', cls: 'wide', fn: () => this.openSaveSlots('save') },
           { label: 'KAYIT YÜKLE', cls: 'wide', fn: () => this.openSaveSlots('load') },
           { label: 'AYARLAR', cls: 'wide', fn: () => this.openSettings(false) },
+          { label: 'BAŞARIMLAR (' + G.achievementCount() + '/' + G.achievementTotal() + ')', cls: 'wide', fn: () => this.openAchievements('pause') },
           { label: 'KONTROLLER', cls: 'wide', fn: () => this.showControls(false) },
           { label: 'ANA MENÜ', cls: 'wide', fn: () => { G.paused = false; G.save(0); this.showTitle(); } },
           MV.Desktop.isDesktop ? { label: 'ÇIKIŞ', cls: 'danger wide', fn: () => MV.Desktop.quit() } : null

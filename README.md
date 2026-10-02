@@ -34,10 +34,29 @@ Doku atlası: [`docs/doku-atlasi.png`](docs/doku-atlasi.png) — tüm dokular `a
 | 💾 **Dosya tabanlı kayıt** | 4 slot (`slot-0…3.json`) — 0 numara otomatik kayıt; her slotta gün, evre, rune sayısı, can ve tarih görünür |
 | ⚙️ **Kalıcı ayarlar** | `settings.json`: grafik kalitesi (yüksek/orta/performans), ses, fare hassasiyeti, ters Y, ekran sarsıntısı, odak kaybında duraklat |
 | 📸 **Ekran görüntüsü** | F12 → `Resimler/Labirent Protokolu/labirent-<tarih>.png`, çekimden önce HUD gizlenir |
+| 🏆 **Başarımlar** | 12 başarım tek profil dosyasında (`achievements.json`); `F2` ile liste, kayıtlardan bağımsız |
 | 🧭 **Yerel Türkçe menü** | Oyun / Görünüm / Ses / Yardım; Ctrl+S kaydet, Ctrl+O yükle, F12 ekran görüntüsü, F11 tam ekran |
 | 📝 **Günlük ve hata yakalama** | `labirent.log`, yakalanmayan hatalar için çökme penceresi |
 | 🎮 **Oyun kolu** | Xbox / DualSense / 8BitDo; takıldığında otomatik algılanır (bkz. Kontroller) |
 | 🖥️ **Tek örnek kilidi** | İkinci kez açılırsa var olan pencere öne gelir |
+
+## ⚠️ Windows'ta "SmartScreen" uyarısı çıkarsa
+
+> **Windows kişisel bilgisayarınızı korudu** — Microsoft Defender SmartScreen tanınmayan bir
+> uygulamanın başlamasını engelledi.
+
+Bu **virüs uyarısı değildir**: Windows, internetten inen ve dijital olarak imzalanmamış her yeni
+programda bu ekranı gösterir. İki yol var:
+
+1. **Ek bilgi → Yine de yükle** (10 saniye).
+2. Ya da hiç uyarı görmemek için indirdikten sonra bir kez engeli kaldır:
+   `Unblock-File "$env:USERPROFILE\Downloads\LabirentProtokolu-Kurulum-1.0.1-x64.exe"`
+   (Dosya Gezgini'nde sağ tık → Özellikler → **Engellemeyi kaldır** ile aynı şey.)
+3. Kurulumdan hiç hoşlanmıyorsan `LabirentProtokolu-Klasor-*.zip` sürümünü indir, klasöre çıkar,
+   `LABIRENT PROTOKOLU.exe` dosyasını çalıştır.
+
+Dosyanın gerçekliğini her zaman yanında yayınlanan `SHA256SUMS-win.txt` ile doğrulayabilirsin
+(ayrıntılı adımlar: [docs/KURULUM.md](docs/KURULUM.md) bölüm 0).
 
 ## İndir ve oyna
 
@@ -59,6 +78,7 @@ dosya konumları için: **[docs/KURULUM.md](docs/KURULUM.md)**
 |---|---|---|
 | Windows | `LabirentProtokolu-Kurulum-1.0.0-x64.exe` | NSIS kurulumu (Türkçe sihirbaz), klasör + masaüstü/Başlat menüsü kısayolu |
 | Windows | `LabirentProtokolu-Tasinabilir-1.0.0-x64.exe` | Kurulumsuz taşınabilir sürüm (USB'den çalışır) |
+| Windows | `LabirentProtokolu-Klasor-1.0.0-x64.zip` | Klasöre çıkarıp çalıştır: ne kurulum ne uyarı |
 | macOS | `LabirentProtokolu-1.0.0-arm64.dmg` / `-x64.dmg` | Apple Silicon + Intel |
 | Linux | `LabirentProtokolu-1.0.0-x86_64.AppImage` / `.deb` | `chmod +x` sonrası çift tıkla, ya da `dpkg -i` |
 

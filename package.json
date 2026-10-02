@@ -1,7 +1,7 @@
 {
   "name": "labirent-protokolu",
   "productName": "LABİRENT PROTOKOLÜ",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Inferno Protocol görselliğinde, Labirent: Ölümcül Kaçış mantığında birinci şahıs hayatta kalma korku oyunu.",
   "main": "electron/main.js",
   "author": {
@@ -30,7 +30,7 @@
   "build": {
     "appId": "com.labirent.protokolu",
     "productName": "LABIRENT PROTOKOLU",
-    "copyright": "© 2026 Labirent Protokolü",
+    "copyright": "© 2026 LABİRENT PROTOKOLÜ",
     "directories": {
       "output": "dist",
       "buildResources": "build"
@@ -63,10 +63,17 @@
           "arch": [
             "x64"
           ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "x64"
+          ]
         }
       ],
       "icon": "build/icon.ico",
-      "artifactName": "LabirentProtokolu-${version}-${arch}.${ext}"
+      "artifactName": "LabirentProtokolu-${version}-${arch}.${ext}",
+      "requestedExecutionLevel": "asInvoker"
     },
     "nsis": {
       "oneClick": false,
@@ -127,6 +134,9 @@
         }
       ]
     },
-    "publish": []
+    "publish": [],
+    "zip": {
+      "artifactName": "LabirentProtokolu-Klasor-${version}-${arch}.${ext}"
+    }
   }
 }
