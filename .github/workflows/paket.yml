@@ -59,12 +59,28 @@ jobs:
           # Kod imzalama sertifikası tanımlı değilse paket imzasız üretilir.
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
 
+      - name: Paket çıktısını listele
+        shell: bash
+        run: |
+          echo "--- dist/ içeriği ---"
+          ls -laR dist 2>&1 | head -60 || true
+          {
+            echo "### ${{ matrix.ad }}"
+            echo '```'
+            ls -laR dist 2>&1 | head -60 || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          ls -laR dist > dist/_icerik.txt 2>&1 || true
+
       - name: Üretilen dosyaları yükle
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.ad }}
-          path: ${{ matrix.eser }}
-          if-no-files-found: error
+          path: |
+            dist
+            !dist/*.blockmap
+            !dist/*.yml
+          if-no-files-found: warn
           retention-days: 30
 
       - name: Sürüm yayınına ekle (yalnızca etiketlerde)
@@ -73,9 +89,12 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || \
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release edit "$GITHUB_REF_NAME" --notes-file dist/_icerik.txt || true
+          else
             gh release create "$GITHUB_REF_NAME" --title "LABİRENT PROTOKOLÜ $GITHUB_REF_NAME" \
-              --notes "İndirilebilir paketler aşağıdadır. Kurulum ve sorun giderme: docs/KURULUM.md" || true
+              --notes-file dist/_icerik.txt || true
+          fi
           for f in dist/*.exe dist/*.dmg dist/*.AppImage dist/*.deb; do
             [ -e "$f" ] && gh release upload "$GITHUB_REF_NAME" "$f" --clobber || true
           done
