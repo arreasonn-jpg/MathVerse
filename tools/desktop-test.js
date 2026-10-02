@@ -97,7 +97,13 @@ const electronStub = {
     showErrorBox(title, msg) { dialogCalls.push({ title: title, detail: msg, error: true }); }
   },
   shell: { openPath(p) { electronStub.shell._last = p; return Promise.resolve(''); } },
-  screen: { getAllDisplays: () => [{ size: { width: 1920, height: 1080 } }] }
+  screen: {
+    getAllDisplays: () => [{
+      size: { width: 1920, height: 1080 },
+      bounds: { x: 0, y: 0, width: 1920, height: 1080 },
+      workArea: { x: 0, y: 0, width: 1920, height: 1040 }
+    }]
+  }
 };
 
 /* ---------------- electron modülünü takas et ---------------- */
@@ -114,6 +120,8 @@ const MAIN = path.join(ROOT, 'electron', 'main.js');
 assert(fs.existsSync(MAIN), 'electron/main.js mevcut');
 assert(fs.existsSync(path.join(ROOT, 'electron', 'preload.js')), 'electron/preload.js mevcut');
 
+/* monitörü değişmiş gibi: kaydedilmiş pencere ekran dışında kalsın */
+fs.writeFileSync(path.join(USER, 'window-state.json'), JSON.stringify({ width: 1280, height: 760, x: 9000, y: 9000, maximized: false }));
 let mainLoaded = true;
 try { require(MAIN); } catch (e) { mainLoaded = false; errors.push('main.js yüklenemedi: ' + e.message); console.log('  ✗ main.js hatası: ' + e.stack); }
 assert(mainLoaded, 'main.js hatasız yüklendi');
@@ -136,6 +144,8 @@ setTimeout(async () => {
   assert(win.opts.webPreferences.sandbox === true, 'renderer kum havuzunda (sandbox)');
   assert(win.opts.webPreferences.webSecurity !== false, 'webSecurity açık');
   assert(win.opts.minWidth >= 900, 'minWidth masaüstü için ayarlı: ' + win.opts.minWidth);
+  assert(win.opts.x === undefined && win.opts.y === undefined,
+    'ekran dışı kaydedilmiş konum yok sayıldı (pencere görünür alanda açılır)');
   assert(win.loadedFile === path.join(ROOT, 'app', 'index.html'), 'oyun dosyası app/index.html yüklendi');
   assert(win._shown === true, 'pencere gösterildi (ready-to-show)');
   assert(fs.existsSync(path.join(USER, 'window-state.json')) || true, 'pencere durumu kaydı yazılabilir');
@@ -166,6 +176,12 @@ setTimeout(async () => {
   assert(!s2.empty && s2.day === 3 && s2.runes === 3, 'slot bilgisi çözümlendi (gün ' + s2.day + ', veri ' + s2.runes + ')');
   assert(ipc('save:dir') === path.join(USER, 'saves'), 'save:dir kayıt klasörünü verdi');
   assert(ipc('save:delete', [2]) === true && !fs.existsSync(file), 'save:delete dosyayı sildi');
+  assert(ipc('save:write', [99, payload]) === true, 'slot numarası üst sınıra kırpıldı (99 → 3)');
+  assert(fs.existsSync(path.join(USER, 'saves', 'slot-3.json')), 'kırpılan slot dosyası: slot-3.json');
+  assert(ipc('save:write', [-7, payload]) === true && fs.existsSync(path.join(USER, 'saves', 'slot-0.json')), 'negatif slot 0’a kırpıldı');
+  assert(ipc('save:write', [2, 'bu bir json değil {{{']) === false, 'bozuk kayıt verisi reddedildi (dosya yazılmadı)');
+  assert(!fs.existsSync(path.join(USER, 'saves', 'slot-2.json')), 'reddedilen veri diske düşmedi');
+  assert(ipc('save:write', [2, 'x'.repeat(3 * 1024 * 1024)]) === false, 'aşırı büyük kayıt reddedildi');
 
   console.log('--- ayarlar ---');
   const def = ipc('settings:read');
@@ -175,6 +191,13 @@ setTimeout(async () => {
   const onDisk = JSON.parse(fs.readFileSync(path.join(USER, 'settings.json'), 'utf8'));
   assert(onDisk.quality === 'yuksek', 'settings.json diske yazıldı');
   assert(ipc('settings:read').quality === 'yuksek', 'ayar kalıcı (yeniden okundu)');
+  const crazy = ipc('settings:write', [{ volume: 99, sensitivity: -5, quality: 'çöp', hudScale: 'büyük', fps: 'evet' }]);
+  assert(crazy.volume === 1 && crazy.sensitivity === 0.2, 'sayısal ayarlar sınırlandı (ses 1, hassasiyet 0.2)');
+  assert(crazy.quality === 'yuksek' && crazy.hudScale === 1, 'geçersiz ayar değerleri varsayılana döndü');
+  assert(crazy.fps === false, 'yanlış tipteki bayrak varsayılana döndü');
+  fs.writeFileSync(path.join(USER, 'settings.json'), '{ bu bozuk bir json');
+  assert(ipc('settings:read').quality === 'orta', 'bozuk settings.json varsayılanlara döndü (oyun açılmaz kalmaz)');
+  ipc('settings:write', [{ quality: 'yuksek', volume: 0.4 }]);
 
   console.log('--- uygulama bilgisi / tam ekran ---');
   const info = ipc('app:info');

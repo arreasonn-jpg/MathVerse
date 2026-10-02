@@ -163,6 +163,8 @@ Kol bağlandığında otomatik algılanır ve ekranda bildirilir; ayrıca bir ş
 | Kayıtlar görünmüyor | Bölüm 5'teki klasörün yazılabilir olduğundan emin ol; antivirüsün klasörü engellemediğini kontrol et. |
 | Linux'ta AppImage açılmıyor | `chmod +x` yaptığından emin ol; Wayland'da `--no-sandbox` dene. |
 | Kol algılanmıyor | Kolu oyun açıkken tak/çıkar — anında algılanır. Windows'ta Xbox kol sürücüsü güncel olmalı. |
+| Bozuk kayıt dosyası | Oyun bozuk slotu yüklerken uyarır ve o slotu yok sayar; `saves` klasöründeki ilgili `.json` dosyasını silip yeniden kaydet. |
+| Ayarlar bozuldu / oyun tuhaf davranıyor | `settings.json` dosyasını sil — oyun bir sonraki açılışta güvenli varsayılanlarla başlar (geçersiz değerler zaten otomatik düzeltilir). |
 | Ekran görüntüsü alınmıyor | `Pictures/Labirent Protokolu` klasörünün oluşturulabildiğini kontrol et (izinler). |
 
 Sorun devam ederse: `labirent.log` + işletim sistemi sürümü + ekran kartı bilgisi ile bildir.

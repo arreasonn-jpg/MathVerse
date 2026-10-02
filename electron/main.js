@@ -57,18 +57,67 @@ const DEFAULTS = {
   invertY: false,
   hudScale: 1.0
 };
+/* Ayar alanlarının sınırları — tek yerde tanımlı, hem okuma hem yazma bunu kullanır. */
+const SETTING_RULES = {
+  quality: { kind: 'enum', values: ['yuksek', 'orta', 'performans'] },
+  volume: { kind: 'number', min: 0, max: 1 },
+  muted: { kind: 'bool' },
+  sensitivity: { kind: 'number', min: 0.2, max: 3 },
+  fov: { kind: 'number', min: 0.6, max: 1.6 },
+  fps: { kind: 'bool' },
+  shake: { kind: 'bool' },
+  fullscreen: { kind: 'bool' },
+  invertY: { kind: 'bool' },
+  hudScale: { kind: 'number', min: 0.6, max: 1.8 }
+};
+
+/* Geçerliyse düzeltilmiş değeri, geçersizse undefined döner. */
+function coerceSetting(key, value) {
+  const r = SETTING_RULES[key];
+  if (!r) return undefined;
+  if (r.kind === 'number') {
+    if (typeof value !== 'number' || !isFinite(value)) return undefined;
+    return Math.min(r.max, Math.max(r.min, value));
+  }
+  if (r.kind === 'bool') return typeof value === 'boolean' ? value : undefined;
+  if (r.kind === 'enum') return r.values.indexOf(value) >= 0 ? value : undefined;
+  return undefined;
+}
+
+/* Bozuk ya da elle düzenlenmiş settings.json oyunu kilitlemesin:
+   geçersiz alanlar varsayılana döner, sayısal alanlar sınırlanır. */
+function sanitizeSettings(obj) {
+  const out = Object.assign({}, DEFAULTS);
+  if (!obj || typeof obj !== 'object') return out;
+  for (const key of Object.keys(DEFAULTS)) {
+    const v = coerceSetting(key, obj[key]);
+    if (v !== undefined) out[key] = v;
+  }
+  return out;
+}
+
 function readSettings() {
   try {
     const raw = fs.readFileSync(settingsPath(), 'utf8');
-    return Object.assign({}, DEFAULTS, JSON.parse(raw));
-  } catch (e) { return Object.assign({}, DEFAULTS); }
+    return sanitizeSettings(JSON.parse(raw));
+  } catch (e) { return sanitizeSettings(null); }
 }
 function writeSettings(patch) {
-  const cur = readSettings();
-  const next = Object.assign({}, cur, patch || {});
-  try { fs.writeFileSync(settingsPath(), JSON.stringify(next, null, 2), 'utf8'); } catch (e) { logLine('ayar yazılamadı: ' + e.message); }
+  const next = readSettings();
+  if (patch && typeof patch === 'object') {
+    for (const key of Object.keys(DEFAULTS)) {
+      if (!(key in patch)) continue;
+      const v = coerceSetting(key, patch[key]);
+      if (v !== undefined) next[key] = v;      // geçersiz değer önceki ayarı bozmaz
+    }
+  }
+  try {
+    fs.mkdirSync(userDir(), { recursive: true });
+    fs.writeFileSync(settingsPath(), JSON.stringify(next, null, 2));
+  } catch (e) { logLine('ayarlar yazılamadı: ' + e.message); }
   return next;
 }
+
 
 /* ---------------- pencere durumu ---------------- */
 const statePath = () => path.join(userDir(), 'window-state.json');
@@ -79,6 +128,25 @@ function readWindowState() {
   } catch (e) { }
   return { width: 1280, height: 760, x: undefined, y: undefined, maximized: true };
 }
+/* Kaydedilmiş pencere konumu artık var olmayan bir ekrana denk geliyorsa
+   (monitör değişikliği) pencereyi görünür alana geri getir. */
+function ensureOnScreen(st) {
+  if (st.x === undefined || st.y === undefined) return st;
+  try {
+    const displays = screen.getAllDisplays();
+    if (!displays.length) return st;
+    const visible = displays.some(d => {
+      const a = d.workArea || d.bounds;
+      if (!a) return true;                 // ekran bilgisi okunamadıysa karar verme
+      const overlapX = Math.min(st.x + st.width, a.x + a.width) - Math.max(st.x, a.x);
+      const overlapY = Math.min(st.y + st.height, a.y + a.height) - Math.max(st.y, a.y);
+      return overlapX > 120 && overlapY > 80;
+    });
+    if (!visible) { logLine('pencere ekran dışında kalmış, ortalanıyor'); st.x = undefined; st.y = undefined; }
+  } catch (e) { }
+  return st;
+}
+
 function saveWindowState() {
   if (!mainWindow || mainWindow.isDestroyed()) return;
   try {
@@ -95,6 +163,8 @@ function readSlot(slot) {
   try { return fs.readFileSync(slotFile(slot), 'utf8'); } catch (e) { return null; }
 }
 function writeSlot(slot, json) {
+  if (typeof json !== 'string' || json.length > 2 * 1024 * 1024) return false;
+  try { JSON.parse(json); } catch (e) { logLine('geçersiz kayıt verisi reddedildi (slot ' + slot + ')'); return false; }
   try {
     fs.writeFileSync(slotFile(slot), json, 'utf8');
     return true;
@@ -122,7 +192,7 @@ function allSlots() {
 
 /* ---------------- oyun penceresi ---------------- */
 function createWindow() {
-  const st = readWindowState();
+  const st = ensureOnScreen(readWindowState());
   const settings = readSettings();
   mainWindow = new BrowserWindow({
     width: st.width, height: st.height, x: st.x, y: st.y,
@@ -313,13 +383,20 @@ function askQuit() {
   }
 }
 
+/* slot numarası her zaman 0–3 aralığında tutulur (dosya yolu oluşturulurken hata payı kalmaz) */
+function slotNo(slot) {
+  const n = Math.trunc(Number(slot));
+  if (!isFinite(n)) return 0;
+  return Math.min(MAX_SLOTS - 1, Math.max(0, n));
+}
+
 /* ---------------- IPC ---------------- */
 function registerIpc() {
   /* kayıtlar */
-  ipcMain.on('save:read', (e, slot) => { e.returnValue = readSlot(Number(slot) || 0); });
-  ipcMain.on('save:write', (e, slot, json) => { e.returnValue = writeSlot(Number(slot) || 0, json); });
+  ipcMain.on('save:read', (e, slot) => { e.returnValue = readSlot(slotNo(slot)); });
+  ipcMain.on('save:write', (e, slot, json) => { e.returnValue = writeSlot(slotNo(slot), json); });
   ipcMain.on('save:delete', (e, slot) => {
-    try { fs.unlinkSync(slotFile(Number(slot) || 0)); e.returnValue = true; } catch (err) { e.returnValue = false; }
+    try { fs.unlinkSync(slotFile(slotNo(slot))); e.returnValue = true; } catch (err) { e.returnValue = false; }
   });
   ipcMain.on('save:list', (e) => { e.returnValue = allSlots(); });
   ipcMain.on('save:dir', (e) => { e.returnValue = savesDir(); });
