@@ -1,0 +1,140 @@
+{
+  "name": "labirent-protokolu",
+  "productName": "LABİRENT PROTOKOLÜ",
+  "version": "1.2.0",
+  "description": "Inferno Protocol görselliğinde, Labirent: Ölümcül Kaçış mantığında birinci şahıs hayatta kalma korku oyunu.",
+  "main": "electron/main.js",
+  "author": {
+    "name": "Labirent Protokolü",
+    "email": "oyun@labirent.local"
+  },
+  "license": "MIT",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --dev",
+    "dist": "electron-builder",
+    "dist:win": "electron-builder --win",
+    "dist:linux": "electron-builder --linux",
+    "dist:mac": "electron-builder --mac",
+    "icons": "node tools/gen-icons.js",
+    "verify": "node tools/maze-test.js && node tools/glade-test.js && node tools/desktop-test.js && node tools/gl-test.js && node tools/smoke-test.js && node tools/smoke-test.js --desktop && node tools/render-real.js",
+    "verify:game": "node tools/maze-test.js && node tools/glade-test.js && node tools/smoke-test.js && node tools/smoke-test.js --desktop",
+    "verify:desktop": "node tools/desktop-test.js",
+    "test": "npm run verify",
+    "verify:gl": "node tools/gl-test.js"
+  },
+  "devDependencies": {
+    "electron": "^44.0.0",
+    "electron-builder": "^26.0.12"
+  },
+  "build": {
+    "appId": "com.labirent.protokolu",
+    "productName": "LABIRENT PROTOKOLU",
+    "copyright": "© 2026 LABİRENT PROTOKOLÜ",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "app/**/*",
+      "electron/**/*",
+      "build/icon.png",
+      "build/icon.ico",
+      "build/icon.icns",
+      "package.json",
+      "!tools/**/*",
+      "!docs/**/*",
+      "!dist/**/*",
+      "!**/*.map"
+    ],
+    "extraMetadata": {
+      "main": "electron/main.js"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.ico",
+      "artifactName": "LabirentProtokolu-Klasor-${version}-${arch}.${ext}",
+      "requestedExecutionLevel": "asInvoker"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "LABİRENT PROTOKOLÜ",
+      "installerLanguages": [
+        "tr_TR",
+        "en_US"
+      ],
+      "language": "1055",
+      "deleteAppDataOnUninstall": false,
+      "artifactName": "LabirentProtokolu-Kurulum-${version}-${arch}.${ext}"
+    },
+    "portable": {
+      "artifactName": "LabirentProtokolu-Tasinabilir-${version}-${arch}.${ext}"
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "icon": "build/icon.png",
+      "category": "Game",
+      "synopsis": "Labirent temalı birinci şahıs hayatta kalma korku oyunu",
+      "description": "Kayran, Geçitler, Grievers ve her gece yer değiştiren duvarlar. Prosedürel FPS raycast motoru.",
+      "artifactName": "LabirentProtokolu-${version}-${arch}.${ext}"
+    },
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ],
+      "icon": "build/icon.icns",
+      "category": "public.app-category.games",
+      "darkModeSupport": true,
+      "artifactName": "LabirentProtokolu-${version}-${arch}.${ext}"
+    },
+    "dmg": {
+      "title": "LABİRENT PROTOKOLÜ ${version}",
+      "contents": [
+        {
+          "x": 140,
+          "y": 220
+        },
+        {
+          "x": 420,
+          "y": 220,
+          "type": "link",
+          "path": "/Applications"
+        }
+      ]
+    },
+    "publish": []
+  }
+}
