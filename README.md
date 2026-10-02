@@ -147,8 +147,10 @@ docs/                ekran görüntüleri ve kurulum kılavuzu
 
 ## Teknik notlar
 
-- **Güvenlik:** `contextIsolation: true`, `nodeIntegration: false`, `sandbox` açık; renderer'a yalnızca
-  `window.desktopAPI` beyaz listesi açılır. Harici bağlantı yok, oyun tamamen çevrimdışıdır.
+- **Güvenlik:** `contextIsolation: true`, `nodeIntegration: false`, `sandbox: true`, `webSecurity: true`;
+  renderer'a yalnızca `window.desktopAPI` beyaz listesi açılır. `index.html` içindeki
+  `Content-Security-Policy` (`default-src 'none'`) sayesinde hiçbir dış kaynak yüklenemez —
+  oyun tamamen çevrimdışıdır ve uzaktan kod çalıştırma yolu yoktur.
 - **Motor:** Birinci şahıs raycast (DDA) motoru — doku eşlemeli duvarlar, sprite'lar, zemin/tavan gölgesi,
   sis ve fener konisi. Sabit adımlı fizik, kare bağımsız hız.
 - **Yer değiştiren duvarlar:** her gece `20-maze.js` sektör bloklarını yeniden karar; oyuncu dışarıdaysa

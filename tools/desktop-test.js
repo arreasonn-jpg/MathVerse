@@ -133,6 +133,8 @@ setTimeout(async () => {
   assert(win.opts.webPreferences.preload === path.join(ROOT, 'electron', 'preload.js'), 'preload yolu doğru');
   assert(win.opts.webPreferences.contextIsolation === true, 'contextIsolation açık');
   assert(win.opts.webPreferences.nodeIntegration === false, 'nodeIntegration kapalı');
+  assert(win.opts.webPreferences.sandbox === true, 'renderer kum havuzunda (sandbox)');
+  assert(win.opts.webPreferences.webSecurity !== false, 'webSecurity açık');
   assert(win.opts.minWidth >= 900, 'minWidth masaüstü için ayarlı: ' + win.opts.minWidth);
   assert(win.loadedFile === path.join(ROOT, 'app', 'index.html'), 'oyun dosyası app/index.html yüklendi');
   assert(win._shown === true, 'pencere gösterildi (ready-to-show)');
@@ -254,6 +256,12 @@ setTimeout(async () => {
   /* index.html kaynakları eksiksiz mi? (paketleme güvenliği) */
   console.log('--- oyun dosyası bütünlüğü ---');
   const html = fs.readFileSync(path.join(ROOT, 'app', 'index.html'), 'utf8');
+  const csp = (html.match(/http-equiv="Content-Security-Policy"\s+content="([^"]+)"/) || [])[1];
+  assert(!!csp, 'index.html içerik güvenlik politikası (CSP) tanımlı');
+  assert(/default-src 'none'/.test(csp || ''), 'CSP varsayılan olarak hiçbir dış kaynağa izin vermiyor');
+  assert(/script-src 'self' file:/.test(csp || ''), 'CSP betikleri yalnızca yerelden yükler');
+  assert(!/<script(?![^>]*src=)[^>]*>[^<]/.test(html.replace(/<!--[\s\S]*?-->/g, '')), 'satır içi betik yok');
+  assert(!/<\w+[^>]*\son[a-z]+=/i.test(html.replace(/<!--[\s\S]*?-->/g, '')), 'satır içi olay işleyicisi yok');
   const refs = [];
   html.replace(/(?:src|href)="([^"]+)"/g, (m, p1) => { refs.push(p1); return m; });
   let missing = refs.filter(r => !/^https?:/.test(r) && !fs.existsSync(path.join(ROOT, 'app', r)));
