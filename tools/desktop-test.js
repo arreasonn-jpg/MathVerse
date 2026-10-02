@@ -323,7 +323,7 @@ setTimeout(async () => {
   assert(wf2.indexOf('sha256sum') >= 0 && wf2.indexOf('SHA256SUMS') >= 0, 'CI sağlama toplamı (SHA-256) üretir');
   const kurulum = fs.readFileSync(path.join(ROOT, 'docs', 'KURULUM.md'), 'utf8');
   assert(/SmartScreen/.test(kurulum) && /Unblock-File/.test(kurulum), 'kurulum kılavuzu SmartScreen ve engel kaldırma adımlarını içerir');
-  assert(pkg.version === '1.0.1', 'sürüm 1.0.1');
+  assert(pkg.version === '1.1.0', 'sürüm 1.1.0');
   assert(pkg.build.nsis.allowToChangeInstallationDirectory === true, 'kurulum klasörü seçilebilir');
   assert(Array.isArray(pkg.build.publish) && pkg.build.publish.length === 0, 'paketleme kendiliğinden yayın yapmaz');
   assert(!!pkg.build.dmg && !!pkg.build.dmg.contents, 'dmg düzeni tanımlı (Applications kısayolu)');
@@ -333,7 +333,9 @@ setTimeout(async () => {
   ['windows-latest', 'ubuntu-latest', 'macos-latest'].forEach(r =>
     assert(wf.indexOf(r) >= 0, 'iş akışı hedefi: ' + r));
   const jsFiles = fs.readdirSync(path.join(ROOT, 'app', 'js'));
-  assert(jsFiles.length >= 9, 'oyun betikleri yerinde: ' + jsFiles.length + ' dosya');
+  assert(jsFiles.length >= 10, 'oyun betikleri yerinde: ' + jsFiles.length + ' dosya');
+  assert(jsFiles.indexOf('07-input.js') >= 0, 'girdi/tuş atama modülü pakete dahil (07-input.js)');
+  assert(jsFiles.indexOf('05-desktop.js') >= 0, 'masaüstü ayar modülü pakete dahil (05-desktop.js)');
 
   console.log('--- electron-builder şeması ---');
   /* electron-builder, package.json'daki build bölümünü katı bir şemaya göre doğrular;

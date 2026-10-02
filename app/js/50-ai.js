@@ -9,6 +9,8 @@
   const AI = {
     /* ---------- görüş hattı ---------- */
     los(world, ax, ay, bx, by, gatesOpen) {
+      /* Kayran güvenli bölge: canavarlar buraya ne bakar ne girer */
+      if (MV.Maze.inGlade(world, bx, by, 0.5) || MV.Maze.inGlade(world, ax, ay, 0.5)) return false;
       const d = dist(ax, ay, bx, by);
       const steps = Math.ceil(d * 3);
       const dx = (bx - ax) / steps, dy = (by - ay) / steps;
@@ -26,6 +28,7 @@
       tx = clamp(Math.floor(tx), 0, W - 1); ty = clamp(Math.floor(ty), 0, H - 1);
       const start = sy * W + sx, goal = ty * W + tx;
       if (MV.Maze.solidAt(world, tx, ty, gatesOpen) || MV.Maze.voidAt(world, tx, ty)) return null;
+      if (MV.Maze.inGlade(world, tx + 0.5, ty + 0.5, 0.5)) return null;   // Kayran'a rota kurulmaz
       const prev = new Int32Array(W * H).fill(-1);
       const seen = new Uint8Array(W * H);
       const q = [start]; seen[start] = 1;
@@ -42,6 +45,7 @@
           if (seen[ni]) continue;
           if (world.solid[ni] === 1) continue;
           if (world.void[ni] === 1) continue;
+          if (MV.Maze.inGlade(world, nx + 0.5, ny + 0.5, 0.5)) continue;    // güvenli bölge
           if (world.gate[ni] === 1 && !gatesOpen) continue;
           seen[ni] = 1; prev[ni] = cur; q.push(ni);
         }
@@ -89,9 +93,22 @@
     update(st, dt) {
       const world = st.world, P = st.player, gatesOpen = st.gatesOpen;
       const night = st.night;
+      const playerSafe = MV.Maze.inGlade(world, P.x, P.y, 0.5);
+      /* güvenlik ağı: içeri sızmış bir yaratık varsa dışarı atılır */
+      const evict = (e) => {
+        if (!MV.Maze.inGlade(world, e.x, e.y, 0.5)) return false;
+        const a = MV.Maze.ang(world, e.x, e.y);
+        const r = MV.K.R1 + 3;
+        const t = MV.Maze.nearestOpen(world,
+          world.cx + Math.cos(a) * r, world.cy + Math.sin(a) * r, 14, true);
+        e.x = t.x; e.y = t.y; e.path = null; e.pi = 0; e.aggro = false;
+        return true;
+      };
       /* --- GRIEVERS --- */
       for (const g of st.grievers) {
         if (g.dead) continue;
+        evict(g);
+        if (playerSafe) g.aggro = false;      // Kayran'dayken avlanmazlar
         g.anim += dt;
         g.atkCd = Math.max(0, g.atkCd - dt);
         g.roarCd = Math.max(0, g.roarCd - dt);
@@ -99,7 +116,7 @@
         const losOk = d < 30 && this.los(world, g.x, g.y, P.x, P.y, gatesOpen);
         const senseR = g.sense * (night ? 1.5 : 1.0) * (1 + P.noise * 1.6) * (P.crouch ? 0.55 : 1);
         if (!g.aggro) {
-          if ((losOk && d < senseR) || (d < 3.2 && losOk)) {
+          if (!playerSafe && ((losOk && d < senseR) || (d < 3.2 && losOk))) {
             g.aggro = true; g.lostT = 0;
             if (st.onEvent) st.onEvent('grieverAggro', g);
           }
@@ -139,11 +156,13 @@
       }
       /* --- BÖCEK BIÇAKLARI --- */
       for (const b of st.beetles) {
+        evict(b);
         b.anim += dt * 2.2;
         const d = dist(b.x, b.y, P.x, P.y);
         const losOk = d < 24 && this.los(world, b.x, b.y, P.x, P.y, gatesOpen);
+        if (playerSafe && b.state !== 'roam') { b.state = 'roam'; b.path = null; b.carrying = null; }
         if (b.state === 'roam') {
-          if (losOk && d < 22 && (b.alertT <= 0 || d < 14)) {
+          if (!playerSafe && losOk && d < 22 && (b.alertT <= 0 || d < 14)) {
             b.state = 'scan';
             b.alertT = 1.35;
             if (st.onEvent) st.onEvent('beetleSpotted', b);
@@ -204,6 +223,7 @@
       const tx = Math.floor(nx), ty = Math.floor(ny);
       const cx = Math.floor(e.x), cy = Math.floor(e.y);
       // yalnızca hedef hücre açıksa geç (köşe kesmeyi önler)
+      if (MV.Maze.inGlade(world, nx, ny, 0.3)) { e.pi++; return true; }   // sınır: geri dön
       if (tx === cx && ty === cy) { e.x = nx; e.y = ny; }
       else if (!MV.Maze.solidAt(world, tx, ty, gatesOpen) && !MV.Maze.voidAt(world, tx, ty)) {
         // hücre merkezine doğru yumuşak geçiş

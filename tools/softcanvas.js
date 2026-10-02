@@ -119,6 +119,7 @@ function Ctx2D(canvas, surf) {
   this.surf = surf;
   this.fillStyle = '#000'; this.strokeStyle = '#000'; this.lineWidth = 1;
   this.globalAlpha = 1; this.font = '10px monospace';
+  this.globalCompositeOperation = 'source-over'; this.filter = 'none';
   this.textAlign = 'left'; this.textBaseline = 'alphabetic';
   this.imageSmoothingEnabled = false;
   this.m = [1, 0, 0, 1, 0, 0];
@@ -126,11 +127,17 @@ function Ctx2D(canvas, surf) {
 }
 Ctx2D.prototype._tp = function (x, y) { const m = this.m; return [m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5]]; };
 Ctx2D.prototype._fscale = function () { const m = this.m; return Math.sqrt(Math.abs(m[0] * m[3] - m[1] * m[2])) || 1; };
-Ctx2D.prototype.save = function () { this._stack.push([this.m.slice(), this.fillStyle, this.strokeStyle, this.lineWidth, this.globalAlpha, this.textAlign, this.textBaseline, this.font]); };
+Ctx2D.prototype.save = function () {
+  this._stack.push([this.m.slice(), this.fillStyle, this.strokeStyle, this.lineWidth, this.globalAlpha,
+    this.textAlign, this.textBaseline, this.font, this.globalCompositeOperation,
+    this._clip ? this._clip.map(b => ({ x0: b.x0, y0: b.y0, x1: b.x1, y1: b.y1 })) : null]);
+};
 Ctx2D.prototype.restore = function () {
   const s = this._stack.pop(); if (!s) return;
   this.m = s[0]; this.fillStyle = s[1]; this.strokeStyle = s[2]; this.lineWidth = s[3];
   this.globalAlpha = s[4]; this.textAlign = s[5]; this.textBaseline = s[6]; this.font = s[7];
+  if (s[8] !== undefined) this.globalCompositeOperation = s[8];
+  if (s[9] !== undefined) this._clip = s[9];
 };
 Ctx2D.prototype.translate = function (x, y) { const m = this.m; m[4] += m[0] * x + m[2] * y; m[5] += m[1] * x + m[3] * y; };
 Ctx2D.prototype.rotate = function (a) {
@@ -156,9 +163,18 @@ Ctx2D.prototype.clearRect = function (x, y, w, h) {
 Ctx2D.prototype._blend = function (x, y, col, alpha) {
   const s = this.surf;
   if (x < 0 || y < 0 || x >= s.width || y >= s.height) return;
+  const clip = this._clip && this._clip.length ? this._clip[this._clip.length - 1] : null;
+  if (clip && (x < clip.x0 || x > clip.x1 || y < clip.y0 || y > clip.y1)) return;
   const a = alpha * this.globalAlpha * (col[3] === undefined ? 1 : col[3]);
   if (a <= 0.002) return;
   const i = (y * s.width + x) * 4, d = s.data;
+  if (this.globalCompositeOperation === 'lighter') {
+    d[i] = Math.min(255, d[i] + col[0] * a);
+    d[i + 1] = Math.min(255, d[i + 1] + col[1] * a);
+    d[i + 2] = Math.min(255, d[i + 2] + col[2] * a);
+    if (d[i + 3] < 255) d[i + 3] = Math.min(255, d[i + 3] + 255 * a);
+    return;
+  }
   d[i] += (col[0] - d[i]) * a;
   d[i + 1] += (col[1] - d[i + 1]) * a;
   d[i + 2] += (col[2] - d[i + 2]) * a;
@@ -298,6 +314,24 @@ Ctx2D.prototype.drawImage = function (img, dx, dy, dw, dh) {
     const p = this._tp(x + 0.5, y + 0.5);
     this._blend(Math.floor(p[0]), Math.floor(p[1]), [src.data[i], src.data[i + 1], src.data[i + 2], 1], a);
   }
+};
+Ctx2D.prototype.clip = function () {
+  /* dikdörtgen kırpma: geçerli yolun sınırlayıcı kutusu */
+  if (!this._clip) this._clip = [];
+  let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
+  for (const p of this.path) for (const q of p) {
+    const t = this._tp(q[0], q[1]);
+    if (t[0] < x0) x0 = t[0]; if (t[0] > x1) x1 = t[0];
+    if (t[1] < y0) y0 = t[1]; if (t[1] > y1) y1 = t[1];
+  }
+  const prev = this._clip.length ? this._clip[this._clip.length - 1] : null;
+  const box = {
+    x0: Math.max(0, Math.floor(prev ? Math.max(prev.x0, x0) : x0)),
+    y0: Math.max(0, Math.floor(prev ? Math.max(prev.y0, y0) : y0)),
+    x1: Math.min(this.surf.width - 1, Math.ceil(prev ? Math.min(prev.x1, x1) : x1)),
+    y1: Math.min(this.surf.height - 1, Math.ceil(prev ? Math.min(prev.y1, y1) : y1))
+  };
+  this._clip.push(box);
 };
 Ctx2D.prototype.createImageData = function (w, h) { return { width: w, height: h, data: new Uint8ClampedArray(w * h * 4) }; };
 Ctx2D.prototype.getImageData = function (x, y, w, h) {

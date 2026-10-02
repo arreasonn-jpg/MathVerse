@@ -109,6 +109,12 @@ jobs:
           read -r -d '' NOTES <<'EOF' || true
           **Inferno Protocol görselliğinde, Labirent: Ölümcül Kaçış mantığında birinci şahıs hayatta kalma-korku oyunu.**
 
+          ### v1.1.0 — neler değişti
+          - **Grafikler profesyonel seviyeye çıkarıldı:** 256 px normal haritalı dokular, yakın duvarlarda tam ışık ve gerçek spekülar, duvar dibi temas gölgesi (AO), ufuk sisine bağlanan uzak duvarlar, GPU'da çizilen gökyüzü katmanı (gradyan + güneş/ay + yıldız + kayan bulutlar), çift doğrusal sprite ölçekleme ve 2× çözünürlüklü yaratık/kulübe/Kutu sprite'ları, yeniden dengelenmiş gece/fener ışığı.
+          - **Kontroller profesyonel seviyeye çıkarıldı:** dengeli/hassas/yumuşak fare eğrileri, kare hızından bağımsız yumuşatma, dikey bakışta doğru açısal dönüşüm, koşu ve eğilme için basılı tut / aç-kapa kipi, kamera sallanması şiddeti, nişan yardımı, kol ölü bölgesi-tepki eğrisi-hassasiyeti, titreşim ve **tam tuş atama ekranı** (23 eylem, değiştir/sil/sıfırla).
+          - **Yaşam alanı güvenli:** Kayran'da (kamp, Kutu, baraka çevresi) artık **hiçbir yaratık yok** — Grievers ve Böcek Bıçakları yalnızca labirent içinde avlanır; güvenli bölgeye giren yaratık anında dışarı atılır.
+          - **Performans:** iç çözünürlük yeniden dengelendi (Yüksek=640p, Orta=512p, Performans=384p) ve render yolu ~5× hızlandırıldı; yeni **Otomatik iç ölçekleme** kare süresini ölçüp ölçeği kendi ayarlar.
+
           ### İndir
           | Platform | Dosya |
           |---|---|

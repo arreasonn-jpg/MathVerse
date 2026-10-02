@@ -80,7 +80,7 @@ assert(G.craft('halat') && G.tools.halat === 1, 'halat üretildi');
 assert(G.craft('mizrak') && G.tools.mizrak === 1, 'mızrak üretildi');
 assert(G.craft('fener') && G.tools.fener === 1, 'fener üretildi');
 G.applySetting('quality', 'performans');
-assert(MV.Renderer.SS === MV.Desktop.QUALITY_SS.performans, 'kalite ayarı motora uygulandı (SS=' + MV.Renderer.SS + ')');
+assert(MV.Renderer.quality === 'performans', 'kalite ayarı motora uygulandı (' + MV.Renderer.quality + ')');
 G.applySetting('fov', 1.3);
 assert(Math.abs(MV.Renderer.fovMul - 1.3) < 1e-6, 'FOV ayarı uygulandı');
 G.applySetting('sensitivity', 1.8);
@@ -166,6 +166,71 @@ step(900, 1 / 60, (i) => {
   G.mouse.dx = ((i % 7) - 3) * 8;
 });
 assert(true, 'uzun simülasyon hatasız: gün ' + G.day + ', hp ' + Math.round(G.player.hp));
+
+console.log('--- yaşam alanı güvenliği (Kayran\'da yaratık olmaz) ---');
+{
+  /* Kullanıcı isteği: canavarlar yalnızca labirentte. En zorlu koşul:
+     gece, oyuncu labirentte, geçitler kapalı → yaratıklar serbest. */
+  const K = MV.K, W = G.world;
+  const st = {
+    world: W, player: G.player, night: true, gatesOpen: false,
+    grievers: G.grievers, beetles: G.beetles, items: G.items,
+    addItem() { }, onBeetleSteal() { }, onGrieverAttack() { }, sound() { }, fx() { }, day: G.day
+  };
+  const spot = MV.Maze.nearestOpen(W, W.cx + K.R1 + 9, W.cy, 10, true);
+  G.player.x = spot.x; G.player.y = spot.y;
+  let worst = 1e9, violations = 0, checked = 0;
+  for (let cycle = 0; cycle < 8; cycle++) {
+    st.day = 1 + cycle; st.night = cycle % 2 === 1;
+    for (let i = 0; i < 90; i++) MV.AI.update(st, 1 / 60);
+    for (const list of [G.grievers, G.beetles]) {
+      for (const e of list) {
+        const r = Math.hypot(e.x - W.cx, e.y - W.cy);
+        checked++; if (r < worst) worst = r;
+        if (r < K.R1) violations++;
+      }
+    }
+  }
+  assert(violations === 0, 'Kayran içinde yaratık yok (' + checked + ' kontrol, en yakın ' + worst.toFixed(2) + ' / R1=' + K.R1 + ')');
+  assert(worst > K.R1, 'en yakın yaratık Kayran sınırının dışında');
+}
+
+console.log('--- tuş atama (rebind) turu ---');
+{
+  const In = MV.Input;
+  const before = In.keyLabel(In.map['forward'][0]);
+  In.setBinding('forward', 'KeyI');
+  assert(In.map['forward'][0] === 'KeyI', 'yeni tuş atandı (I)');
+  const ser = In.serialize();
+  assert(ser['forward'] && ser['forward'][0] === 'KeyI', 'serialize yalnızca değişeni yazıyor');
+  const saved = MV.Desktop.settings.read();
+  saved.keymap = ser;
+  MV.Desktop.settings.write(saved);
+  const re = MV.Desktop.settings.read();
+  In.init(re);
+  MV.Desktop.apply(re);
+  assert(In.map['forward'][0] === 'KeyI', 'kaydedilip geri yüklendi: ' + In.keyLabel(In.map['forward'][0]));
+  assert(In.actionFor('KeyI') === 'forward', 'yeni tuş eyleme bağlandı (' + In.actionFor('KeyI') + ')');
+  /* kayıtlı atamayı temizle → varsayılana dönüş */
+  const cleared = MV.Desktop.settings.read();
+  cleared.keymap = {};
+  MV.Desktop.settings.write(cleared);
+  In.init(cleared); MV.Desktop.apply(cleared);
+  assert(In.map['forward'][0] === 'KeyW', 'varsayılana dönüş (şimdi ' + In.keyLabel(In.map['forward'][0]) + ', ilk tuş: ' + before + ')');
+  assert(In.actionFor('KeyI') === null, 'eski atama temizlendi');
+}
+
+console.log('--- başarım ölçümü (performans kalitesi) ---');
+{
+  MV.Renderer.setQuality('performans');
+  MV.Renderer.setScale(1);
+  const t = Date.now();
+  for (let i = 0; i < 40; i++) { G.update(1 / 60); G.render(1 / 60); }
+  const per = (Date.now() - t) / 40;
+  console.log('  → performans kalitesi: ' + per.toFixed(1) + ' ms/kare (' + MV.Renderer.W + 'x' + MV.Renderer.H + ')');
+  assert(per < 60, 'kare süresi kabul sınırında (' + per.toFixed(1) + ' ms)');
+  MV.Renderer.setQuality('orta');
+}
 
 console.log('--- tüm arayüz ekranları ---');
 const screens = [

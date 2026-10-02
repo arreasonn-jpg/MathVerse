@@ -11,6 +11,7 @@ function makeCtx(canvas) {
   return {
     canvas: canvas,
     fillStyle: '#000', strokeStyle: '#000', lineWidth: 1, font: '10px monospace',
+    filter: 'none', globalCompositeOperation: 'source-over',
     textAlign: 'left', textBaseline: 'alphabetic', globalAlpha: 1,
     imageSmoothingEnabled: false,
     createImageData(w, h) { return { width: w, height: h, data: new Uint8ClampedArray(w * h * 4) }; },
@@ -18,7 +19,7 @@ function makeCtx(canvas) {
     putImageData() { }, drawImage() { }, fillRect() { }, strokeRect() { }, clearRect() { },
     fillText() { }, strokeText() { }, measureText() { return { width: 10 }; },
     beginPath() { }, closePath() { }, moveTo() { }, lineTo() { }, arc() { }, ellipse() { },
-    quadraticCurveTo() { }, bezierCurveTo() { }, rect() { }, stroke() { }, fill() { },
+    quadraticCurveTo() { }, bezierCurveTo() { }, rect() { }, stroke() { }, fill() { }, clip() { },
     save() { }, restore() { }, translate() { }, rotate() { }, scale() { }, setTransform() { },
     createRadialGradient() { return grad; }, createLinearGradient() { return grad; },
     createPattern() { return null; }
@@ -44,6 +45,7 @@ function makeElement(tag, id) {
     addEventListener() { }, removeEventListener() { },
     requestPointerLock() { }, getContext() { return makeCtx(this); },
     getBoundingClientRect() { return { left: 0, top: 0, width: 480, height: 270 }; },
+    clientWidth: 480, clientHeight: 270,
     focus() { }
   };
   return el;
@@ -58,7 +60,10 @@ function makeDesktopAPI(dir) {
   const settingsFile = path.join(dir, 'settings.json');
   const DEFAULT_SETTINGS = {
     quality: 'orta', volume: 0.85, muted: false, sensitivity: 1.0, fov: 1.0,
-    invertY: false, shake: true, fps: false, fullscreen: false, hudScale: 1.0
+    invertY: false, shake: true, fps: false, fullscreen: false, hudScale: 1.0,
+    sprintMode: 'basili', crouchMode: 'basili', mouseCurve: 'dengeli', mouseSmoothing: 0.12,
+    bob: 1.0, assist: true, vibration: true, padDeadzone: 0.18, padCurve: 1.7, padSens: 1.0,
+    renderScale: 'auto', keymap: {}
   };
   const api = {
     isDesktop: true,
@@ -179,7 +184,7 @@ function setup(opts) {
 
   global.MV = {};
   const root = path.join(__dirname, '..');
-  const files = ['00-core.js', '05-desktop.js', '10-textures.js', '20-maze.js', '30-render.js',
+  const files = ['00-core.js', '05-desktop.js', '07-input.js', '10-textures.js', '20-maze.js', '30-render.js',
     '40-audio.js', '50-ai.js', '60-game.js', '70-ui.js'];
   for (const f of files) new Function(fs.readFileSync(path.join(root, 'app', 'js', f), 'utf8'))();
   return { MV: global.MV, byId: byId, elements: elements, desktopAPI: global.window.desktopAPI, setGamepad: setGamepad };

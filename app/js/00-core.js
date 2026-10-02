@@ -152,7 +152,7 @@ var MV = (typeof globalThis !== 'undefined' ? globalThis : this).MV =
   const T = {
     AIR: 0, STONE: 1, STONE_MOSS: 2, HEDERA: 3, BOX: 4, GRASS: 5, DIRT: 6,
     TRACK: 7, WOOD: 8, RUNE_PI: 9, RUNE_SYS: 10, VINE: 11, WATER: 12, CLIFF: 13,
-    GATE: 14, ROCK: 15, GRATE: 16, HIVE: 17, LEAF: 18
+    GATE: 14, ROCK: 15, GRATE: 16, HIVE: 17, LEAF: 18, CEIL: 19
   };
   /* 100..107: rune taşları (π kod dizisi; sırası taşa kazınır) */
   T.RUNE1 = 100; T.RUNE8 = 107;

@@ -524,6 +524,16 @@
     if (x < 0 || y < 0 || x >= w.W || y >= w.H) return false;
     return w.void[y * w.W + x] === 1;
   }
+  /* Kayran = güvenli yaşam alanı: canavarlar buraya giremez */
+  function inGlade(w, x, y, margin) {
+    const m = margin === undefined ? 0.5 : margin;
+    return rad(w, x, y) < K.R1 - m;
+  }
+  function outsideGlade(w, x, y, margin) {
+    const m = margin === undefined ? 1.5 : margin;
+    return rad(w, x, y) > K.R1 + m;
+  }
+
   function floorAt(w, x, y) {
     x = x | 0; y = y | 0;
     if (x < 0 || y < 0 || x >= w.W || y >= w.H) return T.DIRT;
@@ -549,6 +559,7 @@
 
   MV.Maze = {
     K: K, inb: inb, idx: I, rad: rad, ang: ang, setSolidAt: setSolidAt,
+    inGlade: inGlade, outsideGlade: outsideGlade,
     genWorld: genWorld, shiftWorld: shiftWorld, solidAt: solidAt, voidAt: voidAt,
     floorAt: floorAt, sectorAt: sectorAt, nearestOpen: nearestOpen,
     clearArea: clearArea, carveArcGap: carveArcGap

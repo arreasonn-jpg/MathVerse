@@ -10,7 +10,10 @@
   /* ayar satırları: ◀ değer ▶ biçiminde tıklanabilir */
   const SETTINGS_ROWS = [
     { key: 'quality', label: 'GÖRÜNTÜ KALİTESİ', values: ['yuksek', 'orta', 'performans'],
-      fmt: (v) => MV.Desktop.QUALITY_LABEL[v], hint: 'Yüksek=480p iç çözünürlük, Performans=160p (eski PC\'ler için)' },
+      fmt: (v) => MV.Desktop.QUALITY_LABEL[v], hint: 'Yüksek=720p · Orta=540p · Performans=400p iç çözünürlük' },
+    { key: 'renderScale', label: 'ÇÖZÜNÜRLÜK ÖLÇEĞİ', values: ['auto', 'tam', 'normal', 'dusuk'],
+      fmt: (v) => ({ auto: 'OTOMATİK (FPS)', tam: 'TAM', normal: 'NORMAL', dusuk: 'DÜŞÜK' }[v] || 'OTOMATİK'),
+      hint: 'Otomatik: 60 FPS için iç çözünürlük kendini ayarlar' },
     { key: 'fov', label: 'GÖRÜŞ ALANI', values: [0.85, 1.0, 1.15, 1.3],
       fmt: (v) => Math.round(v * 100) + '%', hint: 'Yüksek FOV daha geniş görür ama daha fazla çizer' },
     { key: 'sensitivity', label: 'FARE HASSASİYETİ', values: [0.4, 0.6, 0.8, 1.0, 1.2, 1.5, 1.8, 2.0],
@@ -19,6 +22,25 @@
       fmt: (v) => v ? 'AÇIK' : 'KAPALI', hint: '' },
     { key: 'shake', label: 'KAMERA SARSINTISI', values: [true, false],
       fmt: (v) => v ? 'AÇIK' : 'KAPALI', hint: 'Grievers yaklaşınca ekran titremesi' },
+    { key: 'bob', label: 'BAŞ SALLANMASI', values: [0, 0.35, 0.7, 1.0, 1.3],
+      fmt: (v) => v === 0 ? 'KAPALI' : Math.round(v * 100) + '%', hint: 'Yürürken kamera salınımı' },
+    { key: 'mouseCurve', label: 'FARE EĞRİSİ', values: ['dengeli', 'hassas', 'yumusak'],
+      fmt: (v) => ({ dengeli: 'DENGELİ', hassas: 'HASSAS (nişan)', yumusak: 'YUMUŞAK' }[v] || 'DENGELİ'),
+      hint: 'Hassas: yavaş harekette ince, hızlıda çevik dönüş' },
+    { key: 'mouseSmoothing', label: 'FARE YUMUŞATMA', values: [0, 0.08, 0.12, 0.2, 0.3],
+      fmt: (v) => v === 0 ? 'KAPALI' : Math.round(v * 100) + '%', hint: 'Titremeyi azaltır, hafif gecikme ekler' },
+    { key: 'sprintMode', label: 'KOŞMA', values: ['basili', 'kapa'],
+      fmt: (v) => v === 'basili' ? 'BASILI TUT' : 'AÇ / KAPA', hint: '' },
+    { key: 'crouchMode', label: 'EĞİLME', values: ['basili', 'kapa'],
+      fmt: (v) => v === 'basili' ? 'BASILI TUT' : 'AÇ / KAPA', hint: '' },
+    { key: 'assist', label: 'NİŞAN YARDIMI', values: [true, false],
+      fmt: (v) => v ? 'AÇIK' : 'KAPALI', hint: 'Kolda ve yakın dövüşte hedefe hafif çekim' },
+    { key: 'vibration', label: 'KOL TİTREŞİMİ', values: [true, false],
+      fmt: (v) => v ? 'AÇIK' : 'KAPALI', hint: 'DualSense/Xbox titreşim desteği varsa' },
+    { key: 'padDeadzone', label: 'KOL ÖLÜ BÖLGESİ', values: [0.08, 0.14, 0.18, 0.24, 0.32],
+      fmt: (v) => Math.round(v * 100) + '%', hint: 'Çubukta kendiliğinden kaymayı engeller' },
+    { key: 'padSens', label: 'KOL HASSASİYETİ', values: [0.6, 0.8, 1.0, 1.3, 1.6],
+      fmt: (v) => v.toFixed(1) + '×', hint: '' },
     { key: 'hudScale', label: 'ARAYÜZ ÖLÇEĞİ', values: [0.85, 1.0, 1.15, 1.3],
       fmt: (v) => Math.round(v * 100) + '%', hint: '' },
     { key: 'volume', label: 'SES SEVİYESİ', values: [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0],
@@ -332,40 +354,86 @@
       });
     },
     showControls(back) {
-      const G = this.refs.G;
+      const In = MV.Input;
+      const groups = {};
+      for (const a of In.ACTIONS) (groups[a.group] = groups[a.group] || []).push(a);
+      const sect = (name) => {
+        const rows = groups[name].map(a => {
+          const keys = In.keysFor(a.id).map(k => In.keyLabel(k)).join(' · ') || 'ATANMADI';
+          return '<div><span>' + a.label + '</span><b>' + keys + '</b></div>';
+        }).join('');
+        return '<p class="dim" style="margin-top:10px;letter-spacing:.05em">' + name + '</p><div class="keys">' + rows + '</div>';
+      };
       this.modal({
         kicker: 'SİSTEM', title: 'KONTROLLER',
-        html: `<div class="keys">
-          <div><span>İlerle / geri</span><b>W S</b></div>
-          <div><span>Yan adım</span><b>A D</b></div>
-          <div><span>Koş</span><b>SHIFT</b></div>
-          <div><span>Eğil (sessiz)</span><b>C</b></div>
-          <div><span>Bakış</span><b>FARE</b></div>
-          <div><span>Etkileşim</span><b>E</b></div>
-          <div><span>Fener</span><b>F</b></div>
-          <div><span>Araç seç</span><b>1 2 3 4</b></div>
-          <div><span>Aracı kullan</span><b>Q / SOL TIK</b></div>
-          <div><span>Harita</span><b>M</b></div>
-          <div><span>Günlük</span><b>TAB</b></div>
-          <div><span>Duraklat</span><b>ESC</b></div>
-        </div>
-        <p class="dim" style="margin-top:10px;letter-spacing:.05em">OYUN KOLU (Xbox / DualSense / 8BitDo)</p>
-        <div class="keys">
-          <div><span>Yürü / bak</span><b>SOL / SAĞ ÇUBUK</b></div>
-          <div><span>Koş</span><b>ÇUBUĞU İT</b></div>
-          <div><span>Etkileşim</span><b>A</b></div>
-          <div><span>Fener</span><b>B</b></div>
-          <div><span>Mızrak</span><b>X</b></div>
-          <div><span>Araç kullan</span><b>Y</b></div>
-          <div><span>Araç değiştir</span><b>LB / RB</b></div>
-          <div><span>Eğil</span><b>LT</b></div>
-          <div><span>Harita</span><b>BACK</b></div>
-          <div><span>Duraklat</span><b>START</b></div>
-        </div>
-        <p class="dim" style="margin-top:14px">İpucu: Eğilerek yürürken sesin azalır; Grievers seni daha zor bulur. Fener seni görünür yapar ama karanlıkta yalnız ölürsün.</p>`,
-        buttons: back ? [{ label: 'GERİ', cls: 'primary wide', fn: () => this.showTitle() }]
-          : [{ label: 'KAPAT', cls: 'wide primary', fn: () => this.closeModal() }]
+        html: ['HAREKET', 'EYLEM', 'ARAÇLAR', 'ARAYÜZ', 'SİSTEM'].map(sect).join('') +
+          '<p class="dim" style="margin-top:10px;letter-spacing:.05em">OYUN KOLU (Xbox / DualSense / 8BitDo)</p>' +
+          '<div class="keys">' +
+          '<div><span>Yürü / bak</span><b>SOL / SAĞ ÇUBUK</b></div>' +
+          '<div><span>Koş</span><b>ÇUBUĞU İT</b></div>' +
+          '<div><span>Etkileşim / fener</span><b>A / B</b></div>' +
+          '<div><span>Mızrak / araç</span><b>X / Y</b></div>' +
+          '<div><span>Araç değiştir / eğil</span><b>LB-RB / LT</b></div>' +
+          '<div><span>Harita / duraklat</span><b>BACK / START</b></div>' +
+          '</div>' +
+          '<p class="dim" style="margin-top:14px">İpucu: Eğilerek yürürken sesin azalır; Grievers seni daha zor bulur. Fener seni görünür yapar ama karanlıkta yalnız ölürsün.</p>',
+        buttons: [
+          { label: 'TUŞLARI DEĞİŞTİR', cls: 'wide', fn: () => this.openKeys() },
+          back ? { label: 'GERİ', cls: 'primary wide', fn: () => this.showTitle() }
+            : { label: 'KAPAT', cls: 'primary wide', fn: () => this.togglePause() }
+        ].filter(Boolean)
       });
+    },
+
+    /* ---------- tuş atama ekranı ---------- */
+    openKeys() {
+      const In = MV.Input;
+      const G = this.refs.G;
+      const rows = In.ACTIONS.map(a => {
+        const keys = In.keysFor(a.id).map(k => In.keyLabel(k)).join(' · ') || 'ATANMADI';
+        return '<div class="setRow" data-act="' + a.id + '">' +
+          '<div class="sr-info"><div class="sr-name">' + a.label + '</div>' +
+          '<div class="sr-meta dim">' + a.group + '</div></div>' +
+          '<div class="sr-actions">' +
+          '<span class="setVal">' + keys + '</span>' +
+          '<button class="btn" data-role="set">DEĞİŞTİR</button>' +
+          '<button class="btn" data-role="clr">SİL</button>' +
+          '</div></div>';
+      }).join('');
+      this.modal({
+        kicker: 'SİSTEM', title: 'TUŞ ATAMALARI',
+        html: '<p class="dim">Bir eylemin yanındaki <b>DEĞİŞTİR</b> düğmesine bas, sonra istediğin tuşa bas. ' +
+          'Aynı tuş başka bir eylemde kullanılıyorsa oradan kaldırılır. ESC ile vazgeçebilirsin.</p>' +
+          '<div class="slotList">' + rows + '</div>',
+        buttons: [
+          { label: 'VARSAYILANA DÖN', cls: 'danger wide', fn: () => { In.resetAll(); this.saveKeys(); this.openKeys(); this.toast('TUŞLAR SIFIRLANDI'); } },
+          { label: 'GERİ', cls: 'primary wide', fn: () => this.showControls(false) }
+        ]
+      });
+      const m = this.refs.modal;
+      In.ACTIONS.forEach(a => {
+        const el = m.querySelector && m.querySelector('[data-act="' + a.id + '"]');
+        if (!el || !el.querySelectorAll) return;
+        el.querySelectorAll('[data-role]').forEach(btn => {
+          btn.onclick = () => {
+            const role = btn.getAttribute('data-role');
+            if (role === 'clr') { In.clear(a.id); this.saveKeys(); this.openKeys(); return; }
+            this.toast('TUŞ BEKLENİYOR: ' + a.label);
+            G.bindingCapture = (code) => {
+              G.bindingCapture = null;
+              if (code === 'Escape') { this.openKeys(); return; }
+              In.setBinding(a.id, code);
+              this.saveKeys();
+              MV.Audio.ui();
+              this.openKeys();
+              this.toast(a.label + ' → ' + In.keyLabel(code));
+            };
+          };
+        });
+      });
+    },
+    saveKeys() {
+      this.refs.G.applySetting('keymap', MV.Input.serialize());
     },
     intro() {
       const G = this.refs.G;
@@ -1033,6 +1101,7 @@
           { label: 'AYARLAR', cls: 'wide', fn: () => this.openSettings(false) },
           { label: 'BAŞARIMLAR (' + G.achievementCount() + '/' + G.achievementTotal() + ')', cls: 'wide', fn: () => this.openAchievements('pause') },
           { label: 'KONTROLLER', cls: 'wide', fn: () => this.showControls(false) },
+          { label: 'TUŞ ATAMALARI', cls: 'wide', fn: () => this.openKeys() },
           { label: 'ANA MENÜ', cls: 'wide', fn: () => { G.paused = false; G.save(0); this.showTitle(); } },
           MV.Desktop.isDesktop ? { label: 'ÇIKIŞ', cls: 'danger wide', fn: () => MV.Desktop.quit() } : null
         ].filter(Boolean),

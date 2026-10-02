@@ -39,7 +39,7 @@ global.localStorage = { getItem: (k) => (k in storage ? storage[k] : null), setI
 
 const root = path.join(__dirname, '..');
 global.MV = {};
-for (const f of ['00-core.js', '05-desktop.js', '10-textures.js', '20-maze.js', '30-render.js', '40-audio.js', '50-ai.js', '60-game.js', '70-ui.js']) {
+for (const f of ['00-core.js', '05-desktop.js', '07-input.js', '10-textures.js', '20-maze.js', '30-render.js', '40-audio.js', '50-ai.js', '60-game.js', '70-ui.js']) {
   new Function(fs.readFileSync(path.join(root, 'app', 'js', f), 'utf8'))();
 }
 const MV = global.MV, G = MV.Game, UI = MV.UI;
@@ -119,11 +119,14 @@ function shot(name, cfg) {
   if (cfg.tool !== undefined) G.tool = cfg.tool;
   for (let i = 0; i < 2; i++) G.render(1 / 60);
   const buf = new Uint32Array(R.img.data.buffer);
-  dump(name, R.W, R.H, buf, 2);
+  dump(name, R.W, R.H, buf, cfg.scale || 2);
 }
 
 console.log('--- doku sayfası ---');
 texSheet();
+
+/* ekran görüntüleri profesyonel kalitede alınsın */
+try { MV.Renderer.init(byId('view')); MV.Renderer.setQuality('yuksek'); } catch (e) { console.log('kalite: ' + e.message); }
 
 console.log('--- sahneler ---');
 const w = G.world;
@@ -203,4 +206,34 @@ shot('17_esya', {
   }
 });
 shot('18_orta_gun', { day: 4, phase: 'day', place: () => ({ x: w.cx + 30, y: w.cy - 20, a: 1.90 }) });
+/* dokümantasyon görselleri: sahneyi 1× ölçekte çekip docs/ altına yaz (depo küçük kalsın) */
+function docShot(name, cfg, dst) {
+  shot(name, Object.assign({ scale: 1 }, cfg || {}));
+  try {
+    fs.copyFileSync(path.join(outDir, name + '.png'), path.join(root, 'docs', dst + '.png'));
+    console.log('  docs/' + dst + '.png güncellendi');
+  } catch (e) { console.log('  docs kopyası yazılamadı: ' + e.message); }
+}
+docShot('doc_kayran', { day: 1, phase: 'day', place: () => ({ x: w.cx - 6.5, y: w.cy - 5.5, a: Math.atan2(2 + 5.5, 2 + 6.5) }) }, 'kayran');
+docShot('doc_labirent', { place: () => ({ x: m1.x, y: m1.y, a: 2.1 }) }, 'labirent');
+docShot('doc_gece', { phase: 'night', torch: true, place: () => ({ x: m1.x, y: m1.y, a: 2.1 }) }, 'gece-fener');
+docShot('doc_griever', {
+  place: () => {
+    const g = G.grievers[0];
+    g.x = csp.x + csp.d[0] * 3.4; g.y = csp.y + csp.d[1] * 3.4; g.aggro = true;
+    return { x: csp.x, y: csp.y, a: csp.a };
+  }
+}, 'griever');
+docShot('doc_rune', {
+  place: () => {
+    for (const d of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const nx = rn.x + d[0], ny = rn.y + d[1];
+      if (!w.solid[ny * w.W + nx] && !w.void[ny * w.W + nx]) {
+        return { x: nx + .5, y: ny + .5, a: Math.atan2(rn.y + .5 - (ny + .5), rn.x + .5 - (nx + .5)) };
+      }
+    }
+    return { x: rn.x + 1.5, y: rn.y + .5, a: Math.PI };
+  }
+}, 'rune');
+
 console.log('bitti → tools/out/');

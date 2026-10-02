@@ -102,6 +102,8 @@
   /* ============================================================
      KURULUM
      ============================================================ */
+  const PITCH_MAX = 0.36;          // dikey bakış sınırı (ekran yüksekliği oranı)
+
   G.init = function (canvas) {
     if (typeof document === 'undefined') return;
     this.canvas = canvas;
@@ -113,6 +115,8 @@
     this.settings = MV.Desktop.settings.read();
     MV.Desktop.apply(this.settings);
     this.loadAchievements();
+    /* tuş atamaları (ayarlardan) */
+    MV.Input.init(this.settings);
 
     /* son durum: otomatik kayıt (slot 0) → yoksa yeni deney */
     const auto = MV.Desktop.save.read(0);
@@ -380,11 +384,20 @@
       self.mouse.down = false;
     });
     cv.addEventListener('contextmenu', e => e.preventDefault());
+    /* fare tekerleği: araç değiştir */
+    cv.addEventListener('wheel', e => {
+      if (MV.UI.modalOpen()) return;
+      e.preventDefault();
+      self.cycleTool(e.deltaY > 0 ? 1 : -1);
+    }, { passive: false });
     document.addEventListener('mousemove', e => {
       const dx = e.movementX || 0, dy = e.movementY || 0;
       if (isLocked() || self.mouse.down) {
         self.mouse.dx += dx; self.mouse.dy += dy;
         self.mouse.moved += Math.abs(dx) + Math.abs(dy);
+        /* bakış sallanması: yatay fare hızı yumuşak takip edilir */
+        const k = clamp(1 - Math.pow(0.02, 1 / 60), 0, 1);
+        self.mouseVel = clamp((self.mouseVel || 0) * (1 - k) + dx * 0.045, -1.6, 1.6);
       }
     });
     document.addEventListener('pointerlockchange', () => {
@@ -441,17 +454,46 @@
 
   G.onKey = function (e) {
     A.ensure(); A.resume();
+    if (this.bindingCapture) {                       // tuş atama ekranı
+      e.preventDefault();
+      this.bindingCapture(e.code);
+      return;
+    }
     if (MV.UI.modalOpen()) { MV.UI.handleKey(e); return; }
-    switch (e.code) {
-      case 'KeyE': this.interact(); break;
-      case 'KeyF': this.toggleTorch(); break;
-      case 'KeyC': case 'ControlLeft': this.player.crouch = !this.player.crouch; break;
-      case 'Digit1': case 'Digit2': case 'Digit3': case 'Digit4':
-        this.tool = parseInt(e.code.slice(5), 10) - 1; A.ui(); MV.UI.syncSlots(); break;
-      case 'KeyM': MV.UI.openMap(); break;
-      case 'Tab': e.preventDefault(); MV.UI.openJournal(); break;
-      case 'Escape': MV.UI.togglePause(); break;
-      case 'KeyQ': this.useTool(); break;
+    const act = MV.Input.actionFor(e.code);
+    if (!act) return;
+    switch (act) {
+      case 'interact': this.interact(); break;
+      case 'torch': this.toggleTorch(); break;
+      case 'crouch':
+        if (this.settings.crouchMode !== 'kapa') this.player.crouch = !this.player.crouch;
+        break;
+      case 'jump': this.tryVault(); break;
+      case 'tool1': case 'tool2': case 'tool3': case 'tool4':
+        this.selectTool(parseInt(act.slice(4), 10) - 1); break;
+      case 'toolNext': this.cycleTool(1); break;
+      case 'map': MV.UI.openMap(); break;
+      case 'journal': e.preventDefault(); MV.UI.openJournal(); break;
+      case 'pause': MV.UI.togglePause(); break;
+      case 'attack': this.useTool(); break;
+      case 'achievements': MV.UI.openAchievements(''); break;
+      case 'quicksave': {
+        const ok = this.saveTo(1);
+        MV.UI.toast(ok ? 'HIZLI KAYIT: SLOT 1' : 'KAYIT BAŞARISIZ');
+        break;
+      }
+      case 'quickload': {
+        const ok = this.loadFrom(1);
+        MV.UI.toast(ok ? 'HIZLI YÜKLEME: SLOT 1' : 'SLOT 1 BOŞ');
+        break;
+      }
+      case 'screenshot': this.takeScreenshot(); break;
+      case 'fullscreen': {
+        const s2 = MV.Desktop.settings.read();
+        this.settings = MV.Desktop.settings.write({ fullscreen: !s2.fullscreen });
+        MV.Desktop.setFullscreen(!!this.settings.fullscreen);
+        break;
+      }
     }
   };
 
@@ -637,7 +679,7 @@
     return ACHIEVEMENTS.map(a => ({ id: a.id, name: a.name, desc: a.desc, at: this.achieved[a.id] || 0 }));
   };
 
-  /* ---------- oyun kolu (Xbox/DualSense/8BitDo…) ---------- */
+  /* ---------- oyun kolu (Xbox/DualSense/8BitDo…): ölü bölge + eğri + titreşim ---------- */
   G.pollGamepad = function (dt) {
     if (typeof navigator === 'undefined' || !navigator.getGamepads) return;
     let pad = null;
@@ -645,44 +687,70 @@
     for (let i = 0; i < pads.length; i++) { if (pads[i] && pads[i].connected) { pad = pads[i]; break; } }
     this.pad = pad;
     if (!pad) { this.padMove.f = 0; this.padMove.s = 0; return; }
-    const dz = 0.22;
-    const ax = (i) => { const v = pad.axes[i] || 0; return Math.abs(v) < dz ? 0 : (Math.abs(v) - dz) / (1 - dz) * Math.sign(v); };
+    const dz = (this.settings.padDeadzone === undefined ? 0.18 : this.settings.padDeadzone);
+    const expo = (this.settings.padCurve === undefined ? 1.7 : this.settings.padCurve);
+    const ax = (i) => MV.Aim.stick(pad.axes[i] || 0, dz, expo);
     const b = (i) => !!(pad.buttons[i] && pad.buttons[i].pressed);
+    const val = (i) => (pad.buttons[i] ? pad.buttons[i].value : 0);
     const pressed = (i) => b(i) && !this.padPrev[i];
     this.padPrev = this.padPrev || {};
-    /* hareket: sol çubuk (y yukarı = -1) */
     this.padMove.f = -ax(1);
     this.padMove.s = ax(0);
-    /* bakış: sağ çubuk */
-    const sens = (this.sensitivity || 1) * (this.invertY ? -1 : 1);
+    /* bakış: sağ çubuk + nişan yardımı */
+    const sens = (this.sensitivity || 1) * (this.invertY ? -1 : 1) * (this.settings.padSens || 1);
     const lookX = ax(2), lookY = ax(3);
     if (lookX || lookY) {
       this.player.a += lookX * 2.3 * sens * dt;
-      this.player.pitch = MV.clamp(this.player.pitch - lookY * 150 * sens * dt, -this.H() * 0.28, this.H() * 0.28);
+      const target = this.nearestTarget(20);
+      if (target && this.settings.assist !== false) {
+        this.player.a = MV.Aim.assist(this.player.a, Math.atan2(target.y - this.player.y, target.x - this.player.x), 0.75, dt);
+      }
+      const fy = (MV.Renderer.W || 910) / (2 * (MV.Renderer.FOVK || 0.66));
+      this.player.pitch = clamp(this.player.pitch - lookY * 1.55 * fy * sens * dt, -this.H() * PITCH_MAX, this.H() * PITCH_MAX);
       this.inputMode = 'kol';
     }
-    /* düğmeler (kenar tetiklemeli) */
-    if (pressed(0)) this.interact();                 // A: etkileşim
-    if (pressed(1)) this.toggleTorch();              // B: fener
-    if (pressed(2)) this.onAttack();                 // X: mızrak
-    if (pressed(3)) this.useTool();                  // Y: araç kullan
-    if (pressed(4)) { this.cycleTool(-1); }          // LB
-    if (pressed(5)) { this.cycleTool(1); }           // RB
-    if (pressed(6)) this.player.crouch = !this.player.crouch;   // LT: eğil
-    if (pressed(7) || (pad.buttons[7] && pad.buttons[7].value > 0.6 && !this.padPrev.rt)) {
-      this.onAttack(); this.padPrev.rt = true;       // RT: saldırı
+    if (pressed(0)) this.interact();                     // A
+    if (pressed(1)) this.toggleTorch();                  // B
+    if (pressed(2)) this.onAttack();                     // X
+    if (pressed(3)) this.useTool();                      // Y
+    if (pressed(4)) this.cycleTool(-1);                  // LB
+    if (pressed(5)) this.cycleTool(1);                   // RB
+    this.padCrouch = val(6) > 0.5;                       // LT: eğil
+    if (val(7) > 0.6 && !this.padPrev.rt) {              // RT: saldırı
+      this.onAttack(); this.padPrev.rt = true;
       setTimeout(() => { this.padPrev.rt = false; }, 220);
     }
-    if (pressed(9)) { if (!MV.UI.modalOpen()) MV.UI.togglePause(); else MV.UI.closeModal(); }  // Start
-    if (pressed(8)) {                                                                       // Back: harita
+    if (pressed(9)) { if (!MV.UI.modalOpen()) MV.UI.togglePause(); else MV.UI.closeModal(); }   // Start
+    if (pressed(8)) {                                                                           // Back: harita
       if (MV.UI.mapOpen) { MV.UI.mapOpen = false; MV.UI.closeModal(); }
       else { this.paused = false; MV.UI.openMap(); }
     }
-    /* düğme durumlarını sakla */
     for (let i = 0; i < pad.buttons.length; i++) this.padPrev[i] = b(i);
-    /* koşu: sol çubuğu sonuna kadar itmek */
-    const sprint = Math.hypot(ax(0), ax(1)) > 0.85;
-    this.padSprint = sprint;
+    this.padSprint = Math.hypot(ax(0), ax(1)) > 0.86;
+  };
+  /* titreşim: hasar/saldırı geri bildirimi (varsa) */
+  G.rumble = function (strong, weak, ms) {
+    if (this.settings.vibration === false) return;
+    const p = this.pad;
+    if (!p || !p.vibrationActuator || !p.vibrationActuator.playEffect) return;
+    try {
+      p.vibrationActuator.playEffect('dual-rumble', {
+        duration: ms || 180, strongMagnitude: clamp(strong, 0, 1), weakMagnitude: clamp(weak, 0, 1)
+      });
+    } catch (e) { }
+  };
+
+  G.selectTool = function (i) {
+    if (i < 0 || i > 3) return false;
+    this.tool = i; A.ui(); MV.UI.syncSlots();
+    return true;
+  };
+  /* zıplama yerine: alçak engelden aşma (raycast motorda zıplama yok) */
+  G.tryVault = function () {
+    const P = this.player;
+    if (P.stam < 8) { A.deny(); return false; }
+    P.stam -= 8;
+    A.step('stone');
   };
 
   G.cycleTool = function (dir) {
@@ -690,53 +758,135 @@
     A.ui(); MV.UI.syncSlots();
   };
 
-  /* ---------- bakış ---------- */
+  /* ---------- bakış: hassasiyet eğrisi, yumuşatma, nişan yardımı ---------- */
   G.updateLook = function (dt) {
     const P = this.player;
-    const sens = 0.0022 * (this.sensitivity || 1);
-    const inv = this.invertY ? -1 : 1;
+    const sens = this.sensitivity || 1;
+    const curve = this.settings.mouseCurve || 'dengeli';
+    const smooth = this.settings.mouseSmoothing || 0;
     if (this.mouse.dx || this.mouse.dy) {
-      P.a += this.mouse.dx * sens;
-      P.pitch = clamp(P.pitch - this.mouse.dy * sens * 30 * inv, -this.H() * 0.28, this.H() * 0.28);
+      const rawX = this.mouse.dx, rawY = this.mouse.dy;
       this.mouse.dx = 0; this.mouse.dy = 0;
+      P.a = MV.Aim.apply(P.a, rawX, sens, curve, smooth, dt, false);
+      const inv = this.invertY ? -1 : 1;
+      /* dikey: aynı açısal hassasiyet → ufuk, rad başına fy piksel kayar */
+      const fy = (MV.Renderer.W || 910) / (2 * (MV.Renderer.FOVK || 0.66));
+      const dy = MV.Aim.apply(0, rawY, sens, curve, smooth, dt, false) * fy * inv;
+      P.pitch = clamp(P.pitch - dy, -this.H() * PITCH_MAX, this.H() * PITCH_MAX);
+      this.lookVel = P.a;
+      this.recoilA = 0;
+    } else {
+      /* yumuşatma kapalıyken bile hedefe doğru yumuşak yaklaşım (fare durunca titreme olmasın) */
+      P.pitch = clamp(P.pitch, -this.H() * PITCH_MAX, this.H() * PITCH_MAX);
     }
-    if (this.keys.ArrowLeft) P.a -= 1.9 * dt;
-    if (this.keys.ArrowRight) P.a += 1.9 * dt;
+    /* nişan yardımı: kolda ya da ayar açıkken en yakın görünür hedefe hafif çekim */
+    const assist = this.settings.assist !== false && (this.inputMode === 'kol' || this.settings.assist === true);
+    if (assist && !MV.UI.modalOpen()) {
+      const t = this.nearestTarget(18);
+      if (t) {
+        P.a = MV.Aim.assist(P.a, Math.atan2(t.y - P.y, t.x - P.x), 0.55, dt);
+      }
+    }
     P.a = (P.a + TAU) % TAU;
+  };
+  /* görüş konisindeki en yakın canlı hedef (nişan yardımı + kol) */
+  G.nearestTarget = function (maxD) {
+    const P = this.player;
+    let best = null, bestD = (maxD || 16) * (maxD || 16);
+    const cos = Math.cos(P.a), sin = Math.sin(P.a);
+    const check = (list) => {
+      for (const e of list) {
+        if (e.dead) continue;
+        const dx = e.x - P.x, dy = e.y - P.y;
+        const d2 = dx * dx + dy * dy;
+        if (d2 > bestD) continue;
+        const dot = (dx * cos + dy * sin) / Math.sqrt(d2 || 1);
+        if (dot < 0.72) continue;                        // önündeki ~44° koni
+        if (!MV.AI.los(this.world, P.x, P.y, e.x, e.y, this.gatesOpen())) continue;
+        best = e; bestD = d2;
+      }
+    };
+    check(this.grievers); check(this.beetles);
+    return best;
   };
   G.H = function () { return MV.Renderer.H; };
 
-  /* ---------- hareket ---------- */
+  /* ---------- hareket: hızlanma + sürtünme + duvar kayması ---------- */
   G.updateMove = function (dt) {
     const P = this.player, w = this.world;
-    let fwd = 0, strafe = 0;
-    if (this.keys.KeyW) fwd += 1;
-    if (this.keys.KeyS) fwd -= 1;
-    if (this.keys.KeyA) strafe -= 1;
-    if (this.keys.KeyD) strafe += 1;
-    /* kol girdisi */
+    const In = MV.Input;
+    let fwd = In.down(this.keys, 'forward') ? 1 : 0;
+    if (In.down(this.keys, 'back')) fwd -= 1;
+    let strafe = In.down(this.keys, 'right') ? 1 : 0;
+    if (In.down(this.keys, 'left')) strafe -= 1;
+    /* kol girdisi (ölü bölge + tepki eğrisi) */
     const pm = this.padMove || { f: 0, s: 0 };
     if (pm.f || pm.s) { fwd += pm.f; strafe += pm.s; this.inputMode = 'kol'; }
-    const sprintKey = this.keys.ShiftLeft || this.keys.ShiftRight || this.padSprint;
-    const wantSprint = sprintKey && fwd > 0.1 && P.stam > 4 && !P.crouch;
+    fwd = clamp(fwd, -1, 1); strafe = clamp(strafe, -1, 1);
+
+    /* koşu: basılı tut ya da aç/kapa */
+    const sprintHeld = In.down(this.keys, 'sprint') || this.padSprint;
+    if (this.settings.sprintMode === 'kapa') {
+      if (sprintHeld && !this._sprintLatch) { this._sprintToggle = !this._sprintToggle; this._sprintLatch = true; }
+      if (!sprintHeld) this._sprintLatch = false;
+    } else this._sprintToggle = false;
+    const sprintWanted = sprintHeld || this._sprintToggle;
+
+    /* eğilme: basılı tut ya da aç/kapa */
+    if (this.settings.crouchMode === 'kapa') {
+      if (P.crouch) P.crouch = false;
+    }
+    const crouchHeld = In.down(this.keys, 'crouch') || this.padCrouch;
+    if (this.settings.crouchMode === 'kapa') {
+      if (crouchHeld && !this._crouchLatch) { P.crouch = !P.crouch; this._crouchLatch = true; }
+      if (!crouchHeld) this._crouchLatch = false;
+    } else {
+      P.crouch = crouchHeld;
+    }
+
+    const wantSprint = sprintWanted && fwd > 0.1 && P.stam > 4 && !P.crouch;
     P.sprint = wantSprint;
-    const speed = (P.crouch ? 1.5 : (P.sprint ? P.runSpeed : P.walkSpeed)) * (this.phase === 'night' && !this.insideGlade() ? 0.95 : 1);
-    const len = Math.hypot(fwd, strafe) || 1;
-    const mx = (fwd * Math.cos(P.a) - strafe * Math.sin(P.a)) / len;
-    const my = (fwd * Math.sin(P.a) + strafe * Math.cos(P.a)) / len;
+    const base = P.crouch ? 1.55 : (P.sprint ? P.runSpeed : P.walkSpeed);
+    const nightMul = (this.phase === 'night' && !this.insideGlade()) ? 0.95 : 1;
+    const len = Math.hypot(fwd, strafe);
+    const target = base * nightMul;
+    const cosA = Math.cos(P.a), sinA = Math.sin(P.a);
+    let tx = 0, ty = 0;
+    if (len > 0.01) {
+      const nf = fwd / len, ns = strafe / len;
+      tx = (nf * cosA - ns * sinA) * target;
+      ty = (nf * sinA + ns * cosA) * target;
+    }
+    /* hareket eden oyuncuda yumuşak ivme, dururken hızlı fren */
+    const accel = (len > 0.01 ? 11 : 16) * (P.crouch ? 0.8 : 1);
+    const k = clamp(accel * dt, 0, 1);
+    P.vx = (P.vx || 0) + (tx - (P.vx || 0)) * k;
+    P.vy = (P.vy || 0) + (ty - (P.vy || 0)) * k;
+    if (Math.abs(P.vx) < 0.004) P.vx = 0;
+    if (Math.abs(P.vy) < 0.004) P.vy = 0;
+
     const gatesOpen = this.gatesOpen();
-    const nx = P.x + mx * speed * dt, ny = P.y + my * speed * dt;
     const r = 0.28;
-    const canX = !this.blocked(nx + Math.sign(mx) * r, P.y, r, gatesOpen);
-    const canY = !this.blocked(P.x, ny + Math.sign(my) * r, r, gatesOpen);
-    if (fwd || strafe) {
-      if (canX) P.x = nx;
-      if (canY) P.y = ny;
-      P.bobT += dt * (P.sprint ? 12 : (P.crouch ? 6 : 9));
+    const nx = P.x + P.vx * dt, ny = P.y + P.vy * dt;
+    const canX = !this.blocked(nx + Math.sign(P.vx) * r, P.y, r, gatesOpen);
+    const canY = !this.blocked(P.x, ny + Math.sign(P.vy) * r, r, gatesOpen);
+    if (canX) P.x = nx; else P.vx *= -0.04;      // duvara çarpınca kayma
+    if (canY) P.y = ny; else P.vy *= -0.04;
+    /* köşede sıkışmayı önle: eksen kaydırmalı ikinci deneme */
+    if (!canX && !canY) {
+      const sx = P.x + P.vx * dt * 0.6, sy = P.y + P.vy * dt * 0.6;
+      if (!this.blocked(sx, P.y, r, gatesOpen)) P.x = sx;
+      if (!this.blocked(P.x, sy, r, gatesOpen)) P.y = sy;
+    }
+
+    const moving = Math.hypot(P.vx, P.vy) > 0.25;
+    if (moving) {
+      const speedNow = Math.hypot(P.vx, P.vy);
+      const bobMul = (this.settings.bob === undefined ? 1 : this.settings.bob);
+      P.bobT += dt * bobMul * (P.sprint ? 12.5 : (P.crouch ? 6 : 9.2)) * clamp(speedNow / Math.max(0.1, base), 0.4, 1.3);
       P.steps += dt * (P.sprint ? 3.2 : (P.crouch ? 1.1 : 2.0));
       P.noise = Math.min(1, P.noise + dt * (P.sprint ? 1.7 : (P.crouch ? 0.25 : 0.85)));
-      /* ayak sesi */
-      this.stepAcc += dt * (P.sprint ? 2.6 : (P.crouch ? 1.0 : 1.75));
+      this.stepAcc += dt * (P.sprint ? 2.6 : (P.crouch ? 1.0 : 1.75)) * clamp(speedNow / Math.max(0.1, base), 0.5, 1.2);
       if (this.stepAcc >= 1) {
         this.stepAcc = 0;
         const fl = Maze.floorAt(w, P.x, P.y);
@@ -747,10 +897,11 @@
       P.noise = Math.max(0, P.noise - dt * 1.1);
       P.bobT += dt * 1.6;
     }
-    P.stam = clamp(P.stam + dt * (P.sprint ? -14 : (P.crouch || !(fwd || strafe) ? 12 : 4)), 0, P.maxStam);
-    P.bobX = Math.sin(P.bobT) * (P.sprint ? 1.35 : 1) * (fwd || strafe ? 1 : 0.25);
-    P.bobY = Math.abs(Math.cos(P.bobT)) * (P.sprint ? 1.1 : 0.7) * (fwd || strafe ? 1 : 0.2);
-    /* güvenli konum */
+    P.stam = clamp(P.stam + dt * (P.sprint ? -14 : (P.crouch || !moving ? 12 : 4)), 0, P.maxStam);
+    const bobScale = (this.settings.bob === undefined ? 1 : this.settings.bob);
+    P.bobX = Math.sin(P.bobT) * (P.sprint ? 1.35 : 1) * (moving ? 1 : 0.25) * bobScale;
+    P.bobY = Math.abs(Math.cos(P.bobT)) * (P.sprint ? 1.1 : 0.7) * (moving ? 1 : 0.2) * bobScale;
+  /* güvenli konum */
     if (!Maze.voidAt(w, P.x, P.y) && !this.blocked(P.x, P.y, 0.3, gatesOpen)) {
       this.lastSafe.x = P.x; this.lastSafe.y = P.y;
     }
@@ -1002,6 +1153,7 @@
 
   /* ---------- savaş ---------- */
   G.onAttack = function () {
+    this.rumble && this.rumble(0.45, 0.25, 140);
     const P = this.player;
     this.attackT = 0.36;
     if (this.tool !== 2 && this.tools.mizrak > 0) this.tool = 2;
@@ -1267,20 +1419,32 @@
     const P = this.player, w = this.world, R = MV.Renderer;
     const phase = this.phase;
     const nightF = phase === 'night' ? 1 : (phase === 'dusk' ? clamp(1 - (this.clock / DAY_LEN) / PHASE_DUSK, 0, 1) : 0);
-    /* gökyüzü ve ışık */
-    let sky, skyTop, light, fog, fogDens, stars;
+    /* gökyüzü, güneş/ay ve ortam ışığı (faz geçişlerinde yumuşak) */
+    let sky, skyTop, light, fog, fogDens, stars, clouds;
     if (nightF >= 0.99) {
-      sky = [16, 22, 40]; skyTop = [6, 9, 20]; light = 0.30; fog = [16, 22, 42]; fogDens = 0.052; stars = 1;
+      sky = [16, 22, 40]; skyTop = [5, 8, 19]; light = 0.30; fog = [16, 22, 42]; fogDens = 0.052; stars = 1; clouds = 0.18;
     } else if (nightF > 0.05) {
       const t = nightF;
-      sky = [lerp(122, 150, t), lerp(126, 84, t), lerp(128, 58, t)];
-      skyTop = [lerp(62, 26, t), lerp(70, 34, t), lerp(92, 52, t)];
-      light = lerp(1.0, 0.42, t);
-      fog = [lerp(96, 44, t), lerp(100, 36, t), lerp(104, 38, t)];
-      fogDens = lerp(0.028, 0.046, t); stars = t > 0.5 ? (t - 0.5) * 2 : 0;
+      sky = [lerp(146, 16, t), lerp(140, 22, t), lerp(132, 40, t)];
+      skyTop = [lerp(56, 5, t), lerp(66, 8, t), lerp(96, 19, t)];
+      light = lerp(1.0, 0.30, t);
+      fog = [lerp(104, 16, t), lerp(104, 22, t), lerp(104, 42, t)];
+      fogDens = lerp(0.028, 0.052, t); stars = t > 0.5 ? (t - 0.5) * 2 : 0;
+      clouds = lerp(0.42, 0.18, t);
     } else {
-      sky = [122, 128, 126]; skyTop = [62, 70, 92]; light = 1.0; fog = [96, 102, 104]; fogDens = 0.026; stars = 0;
+      sky = [132, 130, 126]; skyTop = [46, 60, 92]; light = 0.74; fog = [86, 90, 96]; fogDens = 0.031; stars = 0; clouds = 0.42;
     }
+    /* güneş/ay yönü: gündüz doğudan batıya, gece ay ters yönde */
+    const dayFrac = this.phase === 'day' ? clamp(1 - this.clock / DAY_LEN, 0, 1)
+      : (this.phase === 'dusk' ? 1 : 0);
+    const sunAng = lerp(Math.PI * 1.08, Math.PI * 1.92, this.phase === 'night' ? 0.5 : dayFrac);
+    const elapsed = this.phase === 'night' ? clamp(1 - this.clock / NIGHT_LEN, 0, 1) : dayFrac;
+    const celAng = this.phase === 'night' ? lerp(Math.PI * 0.1, Math.PI * 0.9, elapsed) : sunAng;
+    const celEl = this.phase === 'night' ? 0.42 : Math.sin(clamp(dayFrac, 0, 1) * Math.PI) * 0.95 + 0.06;
+    const celCol = this.phase === 'night' ? [170, 190, 255] : [255, 232, 196];
+    const sunDir = [Math.cos(celAng) * 0.62, Math.sin(celAng) * 0.62];
+    const ambient = this.phase === 'night' ? 0.26 : lerp(0.44, 0.30, nightF);
+    const sunCel = { x: P.x + Math.cos(celAng) * 220, y: P.y + Math.sin(celAng) * 220 };
     /* fener ışığı ve şarj */
     let torch = 0;
     if (P.torchOn && this.tools.fener > 0 && this.torchCharge > 0) {
@@ -1302,12 +1466,14 @@
     if (this.attackT > 0) this.attackT = Math.max(0, this.attackT - dt);
     /* görüş nesneleri */
     const ents = [];
+    const moonlit = this.phase === 'night';
     const px = P.x, py = P.y;
     for (const p of this.props) {
       if (dist(p.x, p.y, px, py) > 46) continue;
       ents.push({
         x: p.x, y: p.y, sprite: p.sprite, w: p.w, h: p.h, yOff: p.yOff || 0,
-        glow: (p.glow || 0) * (1 - nightF * 0.2), tint: nightF > 0.5 ? 0.75 : 1
+        glow: (p.glow || 0) * (1 - nightF * 0.2), tint: nightF > 0.5 ? 0.78 : 1,
+        shadow: p.kind !== 'lamp' && p.kind !== 'hatch', shadowW: (p.w || 1) * 0.9
       });
     }
     for (let i = 0; i < this.items.length; i++) {
@@ -1317,7 +1483,7 @@
       const def = ITEMS[it.type];
       ents.push({
         x: it.x, y: it.y, sprite: def.sprite, w: def.w, h: def.h, yOff: def.yOff,
-        glow: it.type === 'anahtar' ? 0.25 : 0.06, tint: 1
+        glow: it.type === 'anahtar' ? 0.28 : 0.07, tint: 1, shadow: true, shadowW: (def.w || 1) * 0.7
       });
     }
     for (const g of this.grievers) {
@@ -1326,7 +1492,9 @@
       if (d > 42) continue;
       ents.push({
         x: g.x, y: g.y, sprite: g.sprite, w: g.w, h: g.h, yOff: g.yOff,
-        glow: g.aggro ? 0.16 : 0, tint: 1
+        frame: Math.floor(g.anim * (g.aggro ? 7.5 : 3.4)) % 4,
+        glow: g.aggro ? 0.20 : 0.02, tint: g.aggro ? 1.06 : (moonlit ? 0.92 : 1),
+        shadow: true, shadowW: (g.w || 1) * 1.15
       });
     }
     for (const b of this.beetles) {
@@ -1334,7 +1502,8 @@
       if (dist(b.x, b.y, px, py) > 30) continue;
       ents.push({
         x: b.x, y: b.y, sprite: b.sprite, w: b.w, h: b.h, yOff: b.yOff,
-        glow: b.state !== 'roam' ? 0.3 : 0.12, tint: 1
+        frame: Math.floor(b.anim * 6) % 4,
+        glow: b.state !== 'roam' ? 0.34 : 0.14, tint: 1, shadow: true, shadowW: (b.w || 1) * 0.9
       });
     }
     /* parçacıklar */
@@ -1360,16 +1529,31 @@
     const sh = this.shakeAmt || 0;
     const shx = sh ? Math.sin(this.meta.time * 41) * sh : 0;
     const shy = sh ? Math.cos(this.meta.time * 37) * sh : 0;
+    /* silah sallanması: fare hızı + yürüyüş + nefes */
+    const swayT = this.swayT = lerp(this.swayT || 0, 0, dt * 4);
+    const sway = {
+      x: clamp((this.mouseVel || 0) * 0.55 + P.bobX * 0.35, -1, 1) * (1 - swayT * 0.3),
+      y: clamp(P.bobY * 0.5 + (P.sprint ? 0.35 : 0.12), -1, 1)
+    };
+    this.mouseVel *= Math.pow(0.02, dt);
     this.view = {
       world: w, px: P.x, py: P.y, pa: P.a + shx * 0.9, pitch: P.pitch + shy * 60,
       zc: zc, bobY: P.bobY, bobX: P.bobX,
       light: light * flicker * (this.falling > 0 ? 0.5 : 1),
       torch: torch * flicker,
       fogColor: fog, fogDens: fogDens, sky: sky, skyTop: skyTop, stars: stars,
+      clouds: clouds, sun: sunCel, sunEl: celEl, sunCol: celCol,
+      sunDir: sunDir, ambient: ambient,
+      exposure: this.phase === 'night' ? 0.94 : (this.cinematic ? 1.12 : 1.03),
+      bloom: (this.phase === 'night' ? 0.34 : 0.22) + torch * 0.16 + (this.fear || 0) * 0.06,
+      ca: 0.45 + (this.fear || 0) * 1.1 + (P.hurtFx || 0) * 1.2,
+      grain: 0.4 + (this.phase === 'night' ? 0.35 : 0),
+      sway: sway,
       gatesOpen: this.gatesOpen(), entities: ents, held: held,
       hurt: P.hurtFx, ghostFx: this.falling > 0, time: this.meta.time
     };
     R.draw(this.view);
+    R.tick(Math.max(0.001, dt));
     MV.UI.setNight(nightF);
   };
 

@@ -6,8 +6,8 @@
   'use strict';
   const { rgb, rgba, pack, mixC, clamp, RNG, h2, fbm, pnoise, celNoise, lerp } = MV;
 
-  const TS = 64;                 // doku boyutu (kare)
-  const TN = 19;                 // doku sayısı
+  const TS = 256;                // doku boyutu (kare, normal harita için yüksek)
+  const TN = 20;                 // doku sayısı
   MV.TS = TS; MV.TEXN = TN;
 
   const T = MV.T;   // karo/doku kimlikleri çekirdekte tanımlı
@@ -44,48 +44,63 @@
      block: 32px blok, harç çizgileri, lekeler, çatlaklar */
   function drawMasonry(ctx, w, h, o) {
     const seed = o.seed, base = o.base, mortar = o.mortar;
-    const block = o.block || 32, rows = h / block;
+    const block = o.block || 32, rows = Math.round(h / block);
     const rng = RNG(seed);
-    // taban harç
-    paint(ctx, w, h, seed, (x, y) => {
-      const n = fbm(x / 9, y / 9, 8, 3, seed) * 0.5 + fbm(x / 2.5, y / 2.5, 4, 2, seed + 5) * 0.5;
-      const m = 0.90 + n * 0.30;
-      return [mortar[0] * m, mortar[1] * m, mortar[2] * m, 255];
-    });
-    // bloklar
+    /* blok renk tonları (blok başına bir kez) */
+    const cols = Math.ceil(w / block) + 2;
+    const tint = new Float32Array(rows * cols);
+    for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) tint[r * cols + c] = 0.80 + rng() * 0.40;
+    const edgeW = Math.max(1, Math.round(block / 22));      // derz/çerçeve kalınlığı
+    const img = ctx.createImageData(w, h);
+    const d = img.data;
+    const baseR = base[0], baseG = base[1], baseB = base[2];
+    const morR = mortar[0], morG = mortar[1], morB = mortar[2];
+    for (let y = 0; y < h; y++) {
+      const r = (y / block) | 0;
+      const by = y - r * block;
+      const xoff = (r % 2) ? block * 0.5 : 0;
+      const rowT = r * cols;
+      for (let x = 0; x < w; x++) {
+        const c = ((x - xoff) / block) | 0;
+        const bx = (x - xoff) - c * block;
+        const inBlock = bx > edgeW && bx < block - edgeW && by > edgeW && by < block - edgeW;
+        const i = (y * w + x) * 4;
+        if (inBlock) {
+          const t = tint[rowT + (c + 1)];
+          const grain = MV.fbm(x / 6, y / 6, 6, 3, seed + r * 31 + c) * 0.52 +
+                        MV.fbm(x / 2.2, y / 2.2, 4, 2, seed + 55) * 0.30 +
+                        MV.h2(x, y, seed + 91) * 0.34;      // ince kum/çakıl dokusu
+          const edge = Math.min(bx - edgeW, block - edgeW - bx, by - edgeW, block - edgeW - by);
+          const bevel = edge < edgeW ? 0.80 : (edge < edgeW * 2 ? 0.93 : 1);
+          const pits = MV.h2(x, y, seed + 137) > 0.986 ? 0.70 : 1;   // gözenek/oyuk
+          const m = (0.80 + grain * 0.52) * bevel * t * pits;
+          d[i] = baseR * m; d[i + 1] = baseG * m; d[i + 2] = baseB * m; d[i + 3] = 255;
+        } else {
+          const n = MV.fbm(x / 9, y / 9, 8, 3, seed) * 0.5 + MV.h2(x, y, seed + 5) * 0.5;
+          const m = 0.90 + n * 0.30;
+          d[i] = morR * m; d[i + 1] = morG * m; d[i + 2] = morB * m; d[i + 3] = 255;
+        }
+      }
+    }
+    ctx.putImageData(img, 0, 0);
+    /* blok üstü leke/çatlak (vektör; az sayıda) */
     for (let r = 0; r < rows; r++) {
       const xoff = (r % 2) ? block / 2 : 0;
-      for (let cx = -1; cx <= w / block; cx++) {
-        const bx = cx * block + xoff + 1, by = r * block + 1;
-        const bw = block - 2, bh = block - 2;
-        const t = rng();
-        const tint = 0.82 + t * 0.36;
-        const stoneCol = [base[0] * tint, base[1] * tint, base[2] * tint];
-        // blok içi pikseller
-        for (let y = by; y < by + bh; y++) {
-          for (let x = bx; x < bx + bw; x++) {
-            if (x < 0 || y < 0 || x >= w || y >= h) continue;
-            const grain = fbm(x / 3.2, y / 3.2, 6, 3, seed + r * 31 + cx) * 0.5 +
-              fbm(x / 1.4, y / 1.4, 4, 2, seed + 91) * 0.5;
-            const edge = Math.min(x - bx, bx + bw - 1 - x, y - by, by + bh - 1 - y);
-            const bevel = edge < 1 ? 0.74 : (edge < 2 ? 0.90 : 1);
-            const m = (0.88 + grain * 0.42) * bevel;
-            ctx.fillStyle = 'rgb(' + (stoneCol[0] * m | 0) + ',' + (stoneCol[1] * m | 0) + ',' + (stoneCol[2] * m | 0) + ')';
-            ctx.fillRect(x, y, 1, 1);
-          }
-        }
-        // blok üstü leke/çatlak
+      for (let c = -1; c <= w / block; c++) {
+        const bx = c * block + xoff, by = r * block;
         if (rng() < 0.55) {
           ctx.fillStyle = 'rgba(0,0,0,' + (0.10 + rng() * 0.20).toFixed(2) + ')';
-          const sx = bx + rng() * bw, sy = by + rng() * bh;
-          ctx.beginPath(); ctx.ellipse(sx, sy, 2 + rng() * 6, 1.5 + rng() * 4, rng() * 3, 0, 6.3); ctx.fill();
-        }
-        if (rng() < 0.30) { // çatlak
-          ctx.strokeStyle = 'rgba(0,0,0,.35)'; ctx.lineWidth = 1;
           ctx.beginPath();
-          let px = bx + rng() * bw, py = by;
+          ctx.ellipse(bx + edgeW + rng() * (block - 2 * edgeW), by + edgeW + rng() * (block - 2 * edgeW),
+            (2 + rng() * 6) * block / 32, (1.5 + rng() * 4) * block / 32, rng() * 3, 0, 6.3);
+          ctx.fill();
+        }
+        if (rng() < 0.30) {
+          ctx.strokeStyle = 'rgba(0,0,0,.35)'; ctx.lineWidth = Math.max(1, block / 32);
+          ctx.beginPath();
+          let px = bx + rng() * block, py = by;
           ctx.moveTo(px, py);
-          for (let k = 0; k < 4; k++) { px += (rng() - 0.5) * 9; py += bh / 4; ctx.lineTo(px, py); }
+          for (let k = 0; k < 4; k++) { px += (rng() - 0.5) * block * 0.28; py += block / 4; ctx.lineTo(px, py); }
           ctx.stroke();
         }
       }
@@ -153,8 +168,8 @@
   function texStone(seed, base) {
     const ctx = getCtx(TS, TS); if (!ctx) return null;
     drawMasonry(ctx, TS, TS, { seed: seed, base: base, mortar: [base[0] * 0.55, base[1] * 0.55, base[2] * 0.55], block: 32 });
-    speckle(ctx, TS, TS, seed + 3, 240, 'rgba(0,0,0,.22)');
-    speckle(ctx, TS, TS, seed + 4, 90, 'rgba(255,255,255,.05)');
+    speckle(ctx, TS, TS, seed + 3, 240 * (TS / 128) * (TS / 128), 'rgba(0,0,0,.22)');
+    speckle(ctx, TS, TS, seed + 4, 40 * (TS / 128) * (TS / 128), 'rgba(255,255,255,.035)');
     grimeEdge(ctx, TS, TS, seed, 0.6);
     return ctx.canvas;
   }
@@ -235,26 +250,38 @@
     return ctx.canvas;
   }
 
-  function texGrass(seed) { // Kayran çimi
+  function texGrass(seed) { // Kayran çimi: yamalı, ince taneli, döşeme izi göstermez
     const ctx = getCtx(TS, TS); if (!ctx) return null;
+    const k = TS / 128;
     paint(ctx, TS, TS, seed, (x, y) => {
-      const n = fbm(x / 8, y / 8, 8, 4, seed) * 0.6 + fbm(x / 2.2, y / 2.2, 4, 3, seed + 3) * 0.4;
-      const g = 52 + n * 44;
-      return [g * 0.72, g * 0.92, g * 0.62, 255];
+      const patch = fbm(x / (26 * k), y / (26 * k), 8, 4, seed) * 0.55 + fbm(x / (9 * k), y / (9 * k), 8, 3, seed + 41) * 0.45;
+      const fine = fbm(x / (2.0 * k), y / (2.0 * k), 8, 3, seed + 3);
+      const g = 44 + patch * 40 + fine * 16;
+      const dry = clamp((fbm(x / (18 * k), y / (18 * k), 4, 3, seed + 77) - 0.52) * 2.4, 0, 1);
+      return [g * (0.66 + dry * 0.30), g * (0.92 - dry * 0.10), g * (0.52 - dry * 0.16), 255];
     });
     const rng = RNG(seed + 6);
-    for (let i = 0; i < 1500; i++) {
+    /* çim sapları: kısa dikey çizgiler (yön çeşitliliği ile) */
+    for (let i = 0; i < 5200; i++) {
       const x = rng.next() * TS, y = rng.next() * TS;
-      const g = 48 + rng() * 62, dark = rng() < 0.25;
-      ctx.fillStyle = dark ? 'rgba(24,30,20,.65)' : 'rgba(' + (g * 0.66 | 0) + ',' + g + ',' + (g * 0.52 | 0) + ',.70)';
-      ctx.fillRect(x | 0, y | 0, 1, 1 + (rng() < 0.3 ? 1 : 0));
+      const g = 48 + rng() * 70, dark = rng() < 0.3;
+      ctx.fillStyle = dark ? 'rgba(20,26,17,.55)' : 'rgba(' + (g * 0.62 | 0) + ',' + g + ',' + (g * 0.48 | 0) + ',.62)';
+      ctx.fillRect(x | 0, y | 0, 1, 1 + (rng() < 0.45 ? 1 : 0) + (rng() < 0.12 ? 1 : 0));
     }
-    // toprak yamaları
-    for (let i = 0; i < 7; i++) {
-      ctx.fillStyle = 'rgba(48,38,26,.5)';
-      ctx.beginPath(); ctx.ellipse(rng.next() * TS, rng.next() * TS, 2 + rng() * 6, 2 + rng() * 5, rng() * 3, 0, 6.3); ctx.fill();
+    /* toprak/kuru yamalar */
+    for (let i = 0; i < 12; i++) {
+      ctx.fillStyle = 'rgba(52,41,27,' + (0.22 + rng() * 0.28).toFixed(2) + ')';
+      ctx.beginPath();
+      ctx.ellipse(rng.next() * TS, rng.next() * TS, (3 + rng() * 9) * k, (2.5 + rng() * 7) * k, rng() * 3, 0, 6.3);
+      ctx.fill();
     }
-    grimeEdge(ctx, TS, TS, seed, 0.35);
+    /* küçük taş/çakıl */
+    for (let i = 0; i < 24; i++) {
+      const x = rng.next() * TS, y = rng.next() * TS, r = (0.8 + rng() * 1.4) * k;
+      ctx.fillStyle = 'rgba(120,118,104,.30)';
+      ctx.beginPath(); ctx.ellipse(x, y, r, r * 0.7, rng() * 3, 0, 6.3); ctx.fill();
+    }
+    grimeEdge(ctx, TS, TS, seed, 0.28);
     return ctx.canvas;
   }
 
@@ -468,86 +495,172 @@
     return ctx.canvas;
   }
 
-  /* ---------- sprite üreticileri (şeffaf zeminli, 64x64) ---------- */
-  function sprite(seed, draw) {
-    const ctx = getCtx(64, 64); if (!ctx) return null;
-    draw(ctx, RNG(seed));
+  /* ---------- sprite üreticileri (şeffaf zeminli) ---------- */
+  function spriteSize(w, h, draw, seed) {
+    const ctx = getCtx(w, h); if (!ctx) return null;
+    draw(ctx, RNG(seed === undefined ? 1 : seed));
     return ctx.canvas;
+  }
+  function sprite(seed, draw) { return spriteSize(64, 64, draw, seed); }
+  /* yüksek çözünürlüklü sprite: aynı vektör çizim k kat büyük tuvale ölçeklenir
+     (kulübe, Kutu, kovan gibi büyük nesneler yakından bakıldığında bloklu görünmez) */
+  function spriteBig(seed, k, draw) {
+    const n = Math.round(64 * k);
+    return spriteSize(n, n, (c, rng) => { c.save(); c.scale(k, k); draw(c, rng); c.restore(); }, seed);
+  }
+  /* animasyonlu sprite: n kare, her kare phase 0..1 */
+  function spriteFrames(w, h, n, seed, draw) {
+    const out = [];
+    for (let i = 0; i < n; i++) out.push(spriteSize(w, h, (c, rng) => draw(c, rng, i / n, i), seed + i * 17));
+    return out;
+  }
+
+  /* ---------- yaratık çizim yardımcıları ---------- */
+  function limb(c, x0, y0, x1, y1, x2, y2, w1, w2, col, col2) {
+    c.lineCap = 'round';
+    c.strokeStyle = col; c.lineWidth = w1;
+    c.beginPath(); c.moveTo(x0, y0); c.lineTo(x1, y1); c.stroke();
+    c.strokeStyle = col2 || col; c.lineWidth = w2;
+    c.beginPath(); c.moveTo(x1, y1); c.lineTo(x2, y2); c.stroke();
+    c.fillStyle = col;
+    c.beginPath(); c.arc(x1, y1, w1 * 0.55, 0, 6.3); c.fill();
+    c.strokeStyle = 'rgba(226,236,232,.30)'; c.lineWidth = Math.max(1, w1 * 0.26);
+    c.beginPath(); c.moveTo(x0, y0 - w1 * 0.30); c.lineTo(x1, y1 - w1 * 0.30); c.stroke();
+    c.fillStyle = col2 || col;
+    c.beginPath(); c.arc(x2, y2, w2 * 0.62, 0, 6.3); c.fill();
+  }
+  function plateShade(c, x, y, rx, ry, rot, base, hi) {
+    const g = c.createLinearGradient(x - rx, y - ry, x + rx, y + ry);
+    g.addColorStop(0, hi); g.addColorStop(0.55, base); g.addColorStop(1, 'rgba(12,15,16,.95)');
+    c.fillStyle = g;
+    c.beginPath(); c.ellipse(x, y, rx, ry, rot, 0, 6.3); c.fill();
+  }
+  function rivets(c, x, y, rx, ry, rot, n, col) {
+    c.save(); c.translate(x, y); c.rotate(rot);
+    c.fillStyle = col || 'rgba(196,206,200,.55)';
+    for (let i = 0; i < n; i++) {
+      const a = i / n * 6.283;
+      c.beginPath(); c.arc(Math.cos(a) * rx * 0.72, Math.sin(a) * ry * 0.72, 1.15, 0, 6.3); c.fill();
+    }
+    c.restore();
+  }
+  /* filmdeki Griever: zırhlı, uzun bacaklı, biyomekanik avcı */
+  function drawGriever(c, rng, phase, S) {
+    const cx = S.w * 0.5;
+    const W = S.w, H = S.h;
+    let cy = S.h * 0.54;
+    const bob = Math.sin(phase * 6.283) * H * 0.012;
+    cy += bob;
+    const shell = 'rgb(58,66,62)', shellHi = 'rgba(126,140,132,.95)', dark = 'rgb(26,30,32)';
+    // zemin gölgesi
+    c.fillStyle = 'rgba(0,0,0,.42)';
+    c.beginPath(); c.ellipse(cx, H * 0.92, W * 0.32, H * 0.05, 0, 0, 6.3); c.fill();
+    // 8 uzuv: femur + tibia + pençe (yürüyüş salınımı)
+    for (let s = -1; s <= 1; s += 2) {
+      for (let i = 0; i < 4; i++) {
+        const ph = phase * 6.283 + i * 1.55 + (s > 0 ? 0 : Math.PI * 0.5);
+        const swing = Math.sin(ph) * H * 0.075;
+        const lift = Math.max(0, Math.cos(ph)) * H * 0.05;
+        const hipX = cx + s * W * 0.10, hipY = cy - H * 0.10 + i * H * 0.055;
+        const kneeX = cx + s * W * (0.24 + i * 0.012), kneeY = hipY - H * 0.17 - lift * 0.4;
+        const footX = cx + s * W * (0.40 + i * 0.028), footY = hipY + H * 0.20 + swing - lift * 0.5;
+        limb(c, hipX, hipY, kneeX, kneeY, footX, footY, 3.1, 1.9, dark, 'rgb(40,46,44)');
+        c.strokeStyle = 'rgba(206,222,214,.20)'; c.lineWidth = 0.9;
+        c.beginPath(); c.moveTo(kneeX, kneeY); c.lineTo(footX, footY); c.stroke();
+      }
+    }
+    // karın (arka gövde): kitin plakalar
+    plateShade(c, cx, cy + H * 0.06, W * 0.20, H * 0.17, 0, 'rgb(46,54,50)', 'rgba(104,120,110,.9)');
+    c.strokeStyle = 'rgba(16,20,20,.8)'; c.lineWidth = 1.2;
+    for (let i = -2; i <= 2; i++) {
+      c.beginPath();
+      c.ellipse(cx, cy + H * 0.06, W * 0.20 - Math.abs(i) * 1.6, H * 0.17 * (1 - Math.abs(i) * 0.16), 0, 0.35, Math.PI - 0.35);
+      c.stroke();
+    }
+    // göğüs zırhı
+    plateShade(c, cx, cy - H * 0.06, W * 0.17, H * 0.13, 0, shell, shellHi);
+    rivets(c, cx, cy - H * 0.06, W * 0.17, H * 0.13, 0, 8, 'rgba(212,222,214,.5)');
+    // WICKED implant: mavi parlayan sırt ışıkları
+    for (let i = 0; i < 3; i++) {
+      const ix = cx - W * 0.06 + i * W * 0.06, iy = cy - H * 0.06;
+      c.fillStyle = 'rgba(120,225,255,.28)';
+      c.beginPath(); c.arc(ix, iy, 4.2, 0, 6.3); c.fill();
+      c.fillStyle = 'rgb(180,244,255)';
+      c.beginPath(); c.arc(ix, iy, 1.7, 0, 6.3); c.fill();
+    }
+    // baş: koyu kitle + 4 sensör gözü + mandibula
+    const hx = cx + Math.sin(phase * 6.283) * W * 0.012, hy = cy - H * 0.21;
+    plateShade(c, hx, hy, W * 0.115, H * 0.085, 0, 'rgb(38,44,44)', 'rgba(96,110,104,.9)');
+    for (let i = 0; i < 4; i++) {
+      const ex = hx + (i < 2 ? -1 : 1) * W * 0.045, ey = hy + (i % 2 ? 0 : -H * 0.03);
+      c.fillStyle = 'rgba(255,90,70,.30)';
+      c.beginPath(); c.arc(ex, ey, 3.6, 0, 6.3); c.fill();
+      c.fillStyle = 'rgb(255,168,120)';
+      c.beginPath(); c.arc(ex, ey, 1.35, 0, 6.3); c.fill();
+    }
+    c.strokeStyle = dark; c.lineWidth = 2.2; c.lineCap = 'round';
+    for (let s = -1; s <= 1; s += 2) {
+      c.beginPath(); c.moveTo(hx + s * W * 0.045, hy + H * 0.05);
+      c.lineTo(hx + s * W * 0.10, hy + H * 0.11);
+      c.lineTo(hx + s * W * 0.045, hy + H * 0.12); c.stroke();
+      c.beginPath(); c.moveTo(hx + s * W * 0.045, hy + H * 0.05);
+      c.lineTo(hx + s * W * 0.015, hy + H * 0.13); c.stroke();
+    }
+    // kuyruk iğnesi
+    c.strokeStyle = 'rgb(34,38,38)'; c.lineWidth = 3.4; c.lineCap = 'round';
+    c.beginPath();
+    c.moveTo(cx - W * 0.02, cy + H * 0.16);
+    c.quadraticCurveTo(cx - W * 0.22, cy + H * 0.24, cx - W * 0.26, cy - H * 0.06);
+    c.stroke();
+    c.fillStyle = 'rgb(196,206,190)';
+    c.beginPath(); c.moveTo(cx - W * 0.26, cy - H * 0.06);
+    c.lineTo(cx - W * 0.30, cy - H * 0.16);
+    c.lineTo(cx - W * 0.22, cy - H * 0.10); c.closePath(); c.fill();
+    c.fillStyle = 'rgba(150,220,170,.75)';
+    c.beginPath(); c.arc(cx - W * 0.245, cy - H * 0.115, 1.4, 0, 6.3); c.fill();
   }
 
   function makeSprites() {
     const S = {};
-    // GRIEVER — örümcek-yengeç melezi: gövde, kabuk plakaları, 8 uzuv, kırmızı sensörler
-    S.griever = sprite(7, (c, rng) => {
-      c.save(); c.translate(32, 34);
-      // gölge
-      c.fillStyle = 'rgba(0,0,0,.45)'; c.beginPath(); c.ellipse(0, 20, 20, 6, 0, 0, 6.3); c.fill();
-      // uzuvlar
-      for (let s = -1; s <= 1; s += 2) for (let i = 0; i < 4; i++) {
-        const a = (-0.9 + i * 0.62) * s + (s > 0 ? 0 : Math.PI);
-        const L = 22 + i * 3;
-        const kx = Math.cos(a) * L * 0.6, ky = Math.sin(a) * L * 0.45 - 6;
-        const ex = Math.cos(a) * L * (s > 0 ? 1 : 1) - (s < 0 ? 0 : 0), ey = Math.sin(a) * L * 0.35 + 12;
-        c.strokeStyle = 'rgb(38,30,34)'; c.lineWidth = 3.4;
-        c.beginPath(); c.moveTo(s * 6, 0); c.lineTo(kx * (s > 0 ? 1 : -1) * (s > 0 ? 1 : 1) + s * 2, ky); c.stroke();
-        c.strokeStyle = 'rgb(24,19,22)'; c.lineWidth = 2.4;
-        c.beginPath(); c.moveTo(kx * (s > 0 ? 1 : -1) + s * 2, ky); c.lineTo(ex * (s > 0 ? 1 : -1), ey); c.stroke();
-        // pençe
-        c.fillStyle = 'rgb(60,52,50)';
-        c.beginPath(); c.arc(ex * (s > 0 ? 1 : -1), ey, 2.2, 0, 6.3); c.fill();
-      }
-      // gövde: kitin plakalar
-      const g = c.createRadialGradient(-6, -8, 2, 0, 0, 22);
-      g.addColorStop(0, 'rgb(92,74,80)'); g.addColorStop(0.5, 'rgb(58,46,52)'); g.addColorStop(1, 'rgb(24,20,24)');
-      c.fillStyle = g;
-      c.beginPath(); c.ellipse(0, 0, 19, 14, 0, 0, 6.3); c.fill();
-      c.strokeStyle = 'rgba(12,10,12,.9)'; c.lineWidth = 1;
-      for (let i = -2; i <= 2; i++) {
-        c.beginPath(); c.ellipse(i * 3.6, 0, 3.4, 13 - Math.abs(i) * 1.6, 0, 0, 6.3); c.stroke();
-      }
-      // kafa plakası + sensörler
-      c.fillStyle = 'rgb(30,24,28)';
-      c.beginPath(); c.ellipse(0, -9, 10, 7, 0, 0, 6.3); c.fill();
-      c.fillStyle = '#ff3a2a';
-      c.beginPath(); c.arc(-4.2, -10, 1.7, 0, 6.3); c.fill();
-      c.beginPath(); c.arc(4.2, -10, 1.7, 0, 6.3); c.fill();
-      c.fillStyle = 'rgba(255,120,90,.55)';
-      c.beginPath(); c.arc(-4.2, -10, 3.4, 0, 6.3); c.fill();
-      c.beginPath(); c.arc(4.2, -10, 3.4, 0, 6.3); c.fill();
-      // iğne kolları
-      c.strokeStyle = 'rgb(20,16,18)'; c.lineWidth = 2;
-      c.beginPath(); c.moveTo(-7, -6); c.lineTo(-16, -16); c.stroke();
-      c.beginPath(); c.moveTo(7, -6); c.lineTo(16, -16); c.stroke();
-      c.restore();
-    });
-    // BÖCEK BIÇAĞI — WICKED casusu
-    S.beetle = sprite(11, (c) => {
-      c.save(); c.translate(32, 30);
-      const body = c.createLinearGradient(0, -12, 0, 12);
-      body.addColorStop(0, 'rgb(120,130,128)'); body.addColorStop(1, 'rgb(38,44,44)');
-      c.fillStyle = body;
-      c.beginPath(); c.ellipse(0, 0, 8, 12, 0, 0, 6.3); c.fill();
-      c.strokeStyle = 'rgba(10,12,12,.8)'; c.lineWidth = 1;
-      c.beginPath(); c.moveTo(0, -12); c.lineTo(0, 12); c.stroke();
-      c.fillStyle = 'rgb(28,32,32)';
-      c.beginPath(); c.ellipse(0, -13, 5, 4, 0, 0, 6.3); c.fill();
-      // sensör göz
-      c.fillStyle = '#8ef0ff'; c.beginPath(); c.arc(0, -14, 1.6, 0, 6.3); c.fill();
-      c.fillStyle = 'rgba(140,240,255,.35)'; c.beginPath(); c.arc(0, -14, 3.4, 0, 6.3); c.fill();
-      // kanat kılıfları
-      c.strokeStyle = 'rgba(200,210,205,.25)'; c.lineWidth = 1;
-      for (let i = -1; i <= 1; i++) { c.beginPath(); c.moveTo(i * 3, -8); c.lineTo(i * 4, 8); c.stroke(); }
-      // 3 çift bacak
+    // GRIEVER — filmdeki biyomekanik avcı: 4 kareli yürüyüş animasyonu
+    S.griever = spriteFrames(176, 140, 4, 7, (c, rng, phase) => drawGriever(c, rng, phase, { w: 176, h: 140 }));
+    // BÖCEK BIÇAĞI — WICKED casusu: metal kabuk, kamera gözü, kare kare kanat
+    S.beetle = spriteFrames(40, 34, 4, 11, (c, rng, phase, fi) => {
+      const W = 40, H = 34, cx = W / 2, cy = H / 2 + 1;
+      c.fillStyle = 'rgba(0,0,0,.35)';
+      c.beginPath(); c.ellipse(cx, H - 3, W * 0.22, H * 0.06, 0, 0, 6.3); c.fill();
+      // kanat bulanıklığı
+      c.fillStyle = 'rgba(186,214,220,' + (0.10 + (fi % 2 ? 0.10 : 0.02)) + ')';
+      c.beginPath(); c.ellipse(cx - 4, cy - 5, 12, 5, -0.35, 0, 6.3); c.fill();
+      c.beginPath(); c.ellipse(cx + 4, cy - 5, 12, 5, 0.35, 0, 6.3); c.fill();
+      // bacaklar
       for (let i = 0; i < 3; i++) for (let s = -1; s <= 1; s += 2) {
-        c.strokeStyle = 'rgb(22,26,26)'; c.lineWidth = 1.6;
-        c.beginPath(); c.moveTo(s * 6, -6 + i * 6);
-        c.lineTo(s * 12, -9 + i * 7); c.lineTo(s * 15, -2 + i * 7); c.stroke();
+        const t = Math.sin(phase * 6.283 + i * 1.2) * 1.6;
+        c.strokeStyle = 'rgb(24,28,28)'; c.lineWidth = 1.5; c.lineCap = 'round';
+        c.beginPath(); c.moveTo(cx + s * 4, cy - 3 + i * 3.4);
+        c.lineTo(cx + s * 10, cy - 5 + i * 3.6 + t);
+        c.lineTo(cx + s * 13, cy + 1 + i * 3.6 + t * 1.2); c.stroke();
       }
-      // anten
-      c.strokeStyle = 'rgb(30,34,34)'; c.lineWidth = 1.2;
-      c.beginPath(); c.moveTo(-2, -16); c.lineTo(-7, -22); c.stroke();
-      c.beginPath(); c.moveTo(2, -16); c.lineTo(7, -22); c.stroke();
+      // kabuk
+      c.save(); c.translate(cx, cy); c.rotate(-0.06);
+      plateShade(c, 0, 0, 9.5, 6.4, 0, 'rgb(58,70,68)', 'rgba(150,176,168,.95)');
+      c.strokeStyle = 'rgba(14,18,18,.85)'; c.lineWidth = 1;
+      c.beginPath(); c.moveTo(0, -6); c.lineTo(0, 6); c.stroke();
+      rivets(c, 0, 0, 9.5, 6.4, 0, 8, 'rgba(208,222,214,.5)');
       c.restore();
+      // kamera gözü (WICKED casusu) + kızıl tarama ışığı
+      c.fillStyle = 'rgba(255,70,60,.22)';
+      c.beginPath(); c.arc(cx, cy - 6, 4.6, 0, 6.3); c.fill();
+      c.fillStyle = 'rgb(30,34,34)';
+      c.beginPath(); c.arc(cx, cy - 6, 2.7, 0, 6.3); c.fill();
+      c.fillStyle = 'rgb(255,120,96)';
+      c.beginPath(); c.arc(cx, cy - 6, 1.5, 0, 6.3); c.fill();
+      c.fillStyle = 'rgba(255,255,255,.85)';
+      c.beginPath(); c.arc(cx - 0.7, cy - 6.7, 0.5, 0, 6.3); c.fill();
+      // anten
+      c.strokeStyle = 'rgb(30,34,34)'; c.lineWidth = 1.1;
+      c.beginPath(); c.moveTo(cx - 2, cy - 8); c.lineTo(cx - 6, cy - 13); c.stroke();
+      c.beginPath(); c.moveTo(cx + 2, cy - 8); c.lineTo(cx + 6, cy - 13); c.stroke();
     });
     // Serum (yeşil cam)
     S.vial = sprite(21, (c) => {
@@ -573,7 +686,7 @@
       c.restore();
     });
     // İzleyici (tracker) — WICKED terminali
-    S.tracker = sprite(41, (c) => {
+    S.tracker = spriteBig(41, 1.5, (c) => {
       c.save(); c.translate(32, 40);
       c.fillStyle = 'rgba(0,0,0,.45)'; c.beginPath(); c.ellipse(0, 14, 14, 5, 0, 0, 6.3); c.fill();
       c.fillStyle = 'rgb(58,64,62)'; c.fillRect(-4, -10, 8, 22);
@@ -647,7 +760,7 @@
       c.restore();
     });
     // KUTU — WICKED çelik konteyneri (Kayran'ın merkezi)
-    S.box = sprite(241, (c, rng) => {
+    S.box = spriteBig(241, 2, (c, rng) => {
       c.save(); c.translate(32, 58);
       c.fillStyle = 'rgba(0,0,0,.45)'; c.beginPath(); c.ellipse(0, 4, 30, 7, 0, 0, 6.3); c.fill();
       // gövde
@@ -691,7 +804,7 @@
       c.restore();
     });
     // Kutu kapağı / kasa
-    S.crate = sprite(101, (c) => {
+    S.crate = spriteBig(101, 1.5, (c) => {
       c.save(); c.translate(32, 38);
       c.fillStyle = 'rgba(0,0,0,.45)'; c.beginPath(); c.ellipse(0, 16, 15, 5, 0, 0, 6.3); c.fill();
       c.fillStyle = 'rgb(74,62,46)'; c.fillRect(-14, -14, 28, 30);
@@ -701,7 +814,7 @@
       c.restore();
     });
     // Fener direği
-    S.lamp = sprite(111, (c) => {
+    S.lamp = spriteBig(111, 1.5, (c) => {
       c.save(); c.translate(32, 56);
       c.strokeStyle = 'rgb(48,48,44)'; c.lineWidth = 3;
       c.beginPath(); c.moveTo(0, 0); c.lineTo(0, -46); c.stroke();
@@ -733,7 +846,7 @@
       c.restore();
     });
     // Baraka (Kayran kulübesi)
-    S.hut = sprite(211, (c, rng) => {
+    S.hut = spriteBig(211, 2.5, (c, rng) => {
       c.save(); c.translate(32, 56);
       c.fillStyle = 'rgba(0,0,0,.4)'; c.beginPath(); c.ellipse(0, 6, 26, 6, 0, 0, 6.3); c.fill();
       // gövde
@@ -754,7 +867,7 @@
       c.restore();
     });
     // Griever kovanı (organik yığın)
-    S.hive = sprite(221, (c, rng) => {
+    S.hive = spriteBig(221, 2, (c, rng) => {
       c.save(); c.translate(32, 58);
       c.fillStyle = 'rgba(0,0,0,.45)'; c.beginPath(); c.ellipse(0, 4, 30, 8, 0, 0, 6.3); c.fill();
       const g = c.createRadialGradient(-6, -26, 4, 0, -18, 34);
@@ -871,6 +984,51 @@
     return S;
   }
 
+  /* ---------- tavan: kaba kaya + kiriş izleri ---------- */
+  function texCeil(seed) {
+    const ctx = getCtx(TS, TS); if (!ctx) return null;
+    paint(ctx, TS, TS, seed, (x, y) => {
+      const n = fbm(x / 22, y / 22, 6, 4, seed) * 0.6 + fbm(x / 6, y / 6, 8, 3, seed + 9) * 0.4;
+      const g = 46 + n * 46;
+      const cr = fbm(x / 13, y / 13, 4, 3, seed + 31);
+      const crack = cr > 0.62 ? 1 : 0;
+      const v = (g * (crack ? 0.55 : 1)) | 0;
+      const moss = clamp(fbm(x / 26, y / 26, 4, 3, seed + 77) - 0.44, 0, 1) * 0.5;
+      return [v * (1 - moss * 0.25) | 0, (v + moss * 22) | 0, (v * 0.96 + moss * 10) | 0, 255];
+    });
+    speckle(ctx, TS, TS, seed + 5, 900, [22, 24, 26], 1);
+    return ctx.canvas;
+  }
+
+  /* ---------- normal + parlama haritası (yükseklik ≈ parlaklık) ---------- */
+  function attachMaps(cv, bump, specAmt) {
+    if (!cv || !cv.getContext) return cv;
+    const c = cv.getContext('2d');
+    const w = cv.width, h = cv.height;
+    const d = c.getImageData(0, 0, w, h).data;
+    const n = new Uint8Array(w * h * 2);
+    const sp = new Uint8Array(w * h);
+    const lum = new Float32Array(w * h);
+    for (let i = 0; i < w * h; i++) {
+      lum[i] = (d[i * 4] * 0.299 + d[i * 4 + 1] * 0.587 + d[i * 4 + 2] * 0.114) / 255;
+    }
+    for (let y = 0; y < h; y++) {
+      const ym = y > 0 ? y - 1 : h - 1, yp = y < h - 1 ? y + 1 : 0;
+      for (let x = 0; x < w; x++) {
+        const xm = x > 0 ? x - 1 : w - 1, xp = x < w - 1 ? x + 1 : 0;
+        const dx = (lum[y * w + xp] - lum[y * w + xm]) * bump;
+        const dy = (lum[yp * w + x] - lum[ym * w + x]) * bump;
+        const nx2 = clamp(-dx, -1, 1), ny2 = clamp(-dy, -1, 1);
+        const i = (y * w + x);
+        n[i * 2] = Math.round((nx2 * 0.5 + 0.5) * 255);
+        n[i * 2 + 1] = Math.round((ny2 * 0.5 + 0.5) * 255);
+        sp[i] = Math.round(clamp((lum[i] - 0.42) * 1.7, 0, 1) * 255 * (specAmt === undefined ? 0.5 : specAmt));
+      }
+    }
+    cv._normal = n; cv._spec = sp; cv._data = null;
+    return cv;
+  }
+
   /* ---------- yükleme ---------- */
   function build() {
     const walls = [];
@@ -894,6 +1052,7 @@
     walls[T.HIVE] = texHive(1016);
     walls[T.ROCK] = texCliff(1017);
     walls[T.LEAF] = texLeaf(1018);
+    walls[T.CEIL] = texCeil(1019);
     // her rune taşı: basamak + okunma sırası
     const order = (MV.K && MV.K.RUNE_ORDER) || [3, 1, 4, 1, 5, 9, 2, 6];
     for (let k = 0; k < 8; k++) {
@@ -912,18 +1071,41 @@
       11: [texVine(2011)],
       18: [texLeaf(2012)]
     };
+    /* --- normal/parlama haritaları: dokunun parlaklığı yükseklik kabul edilir --- */
+    const BUMP = {
+      1: [2.4, 0.35], 2: [2.6, 0.30], 3: [2.0, 0.25], 11: [2.0, 0.25], 13: [2.8, 0.30],
+      15: [2.8, 0.30], 4: [1.6, 0.75], 14: [1.5, 0.65], 9: [2.2, 0.45], 10: [2.2, 0.45],
+      17: [2.2, 0.35], 18: [2.0, 0.20], 8: [1.8, 0.30], 16: [2.6, 0.85], 5: [1.2, 0.10],
+      6: [1.5, 0.12], 7: [1.4, 0.45], 12: [0.7, 0.95], 19: [2.5, 0.22]
+    };
+    for (const k in walls) {
+      const cv = walls[k];
+      if (!cv) continue;
+      const b0 = BUMP[k] || [2.0, 0.3];
+      const b = [b0[0] * (TS / 128), b0[1]];
+      attachMaps(cv, b[0], b[1]);
+    }
+    for (const k in variant) {
+      variant[k].forEach(cv => {
+        if (!cv) return;
+        const b0 = BUMP[k] || [2.0, 0.3];
+      const b = [b0[0] * (TS / 128), b0[1]];
+        attachMaps(cv, b[0], b[1]);
+      });
+    }
+
     const sprites = makeSprites();
     /* --- seviye düzeltmesi: tüm dokular ve sprite'lar --- */
     for (const k in walls) {
       const cv = walls[k];
-      if (cv && cv.getContext) levelBoost(cv.getContext('2d'));
+      if (cv && cv.getContext) levelBoost(cv.getContext('2d'), 0.66, 7);
     }
     for (const k in variant) {
       variant[k].forEach(cv => { if (cv && cv.getContext) levelBoost(cv.getContext('2d')); });
     }
     for (const k in sprites) {
       const cv = sprites[k];
-      if (cv && cv.getContext) levelBoost(cv.getContext('2d'), 0.68, 8);
+      if (cv && cv.getContext) levelBoost(cv.getContext('2d'), 0.70, 6);
     }
 
     MV.TEXV = variant;                 // hücre bazlı doku varyantları

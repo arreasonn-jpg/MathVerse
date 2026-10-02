@@ -17,10 +17,15 @@
     shake: true,
     fps: false,
     fullscreen: false,
-    hudScale: 1.0
+    hudScale: 1.0,
+    sprintMode: 'basili', crouchMode: 'basili',
+    mouseCurve: 'dengeli', mouseSmoothing: 0.12, bob: 1.0,
+    assist: true, vibration: true,
+    padDeadzone: 0.18, padCurve: 1.7, padSens: 1.0,
+    renderScale: 'auto', keymap: {}
   };
-  const QUALITY_SS = { yuksek: 1, orta: 2, performans: 3 };
   const QUALITY_LABEL = { yuksek: 'YÜKSEK', orta: 'ORTA', performans: 'PERFORMANS' };
+  const SCALE_PRESET = { dusuk: 0.62, normal: 0.85, tam: 1.0 };
 
   const LS_SETTINGS = 'labirent-settings-v1';
   const LS_SLOT = (s) => 'labirent-slot-' + s + '-v1';
@@ -41,7 +46,7 @@
     info() {
       if (isDesktop) { try { return bridge.info(); } catch (e) { } }
       return {
-        version: '1.0.1-tarayıcı', platform: 'tarayıcı', arch: '-',
+        version: '1.1.0-tarayıcı', platform: 'tarayıcı', arch: '-',
         electron: '-', chrome: navigator.userAgent, node: '-',
         userData: '-', saves: 'localStorage', shots: '-', screens: []
       };
@@ -164,7 +169,6 @@
     },
 
     /* ---------------- yardımcılar ---------------- */
-    QUALITY_SS: QUALITY_SS,
     QUALITY_LABEL: QUALITY_LABEL,
     DEFAULT_SETTINGS: DEFAULT_SETTINGS,
 
@@ -172,8 +176,14 @@
     apply(settings) {
       const s = settings || this.settings.read();
       if (MV.Renderer) {
-        MV.Renderer.setQuality(QUALITY_SS[s.quality] || 2);
+        MV.Renderer.setQuality(QUALITY_LABEL[s.quality] ? s.quality : 'orta');
         MV.Renderer.fovMul = s.fov || 1.0;
+        if (s.renderScale === 'auto' || s.renderScale === undefined) {
+          MV.Renderer.autoScale = true;
+        } else {
+          MV.Renderer.autoScale = false;
+          MV.Renderer.setScale(SCALE_PRESET[s.renderScale] || 1);
+        }
       }
       if (MV.Audio) {
         MV.Audio.setVolume(s.volume);
@@ -183,6 +193,8 @@
         MV.Game.invertY = !!s.invertY;
         MV.Game.sensitivity = s.sensitivity || 1.0;
         MV.Game.shake = s.shake !== false;
+        MV.Game.settings = s;
+        if (MV.Input) MV.Input.init(s);
       }
       if (MV.UI) {
         MV.UI.setHudScale(s.hudScale || 1.0);

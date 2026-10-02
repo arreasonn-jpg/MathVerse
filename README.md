@@ -9,6 +9,16 @@ dosyası yoktur, tüm dokular, sprite'lar, sesler ve arayüz çalışma anında 
 
 ![Kayran](docs/kayran.png)
 
+## Son sürüm — v1.1.0
+
+| | |
+|---|---|
+| 💎 **Profesyonel grafik** | 256 px normal haritalı dokular, yakın duvarlarda tam ışık + gerçek spekülar, duvar dibi temas gölgesi (AO), ufuk sisine bağlanan uzak duvarlar, GPU'da çizilen gökyüzü (gradyan + güneş/ay + yıldız + kayan bulutlar), çift doğrusal sprite ölçekleme, 2× çözünürlüklü yaratık ve yapı sprite'ları, yeniden dengelenmiş gece/fener ışığı |
+| 🕹️ **Profesyonel kontrol** | Fare eğrisi (dengeli/hassas/yumuşak) + kare hızından bağımsız yumuşatma, doğru açısal dikey bakış, koşu/eğilme için basılı tut ya da aç-kapa, kamera sallanması şiddeti, nişan yardımı, kol ölü bölgesi–tepki eğrisi–hassasiyeti, titreşim |
+| ⌨️ **Tuş atama ekranı** | 23 eylem için tuş değiştir / sil / sıfırla; çakışan tuş otomatik eski eylemden alınır, `settings.json`'a yazılır |
+| 🛖 **Yaşam alanı güvenli** | Kayran'da (kamp, Kutu, baraka çevresi) **hiçbir yaratık yok**. Grievers ve Böcek Bıçakları yalnızca labirent içinde; güvenli bölgeye giren yaratık anında dışarı atılır ve oyuncu güvendeyken avlanmaz — filmdeki gibi |
+| ⚡ **Hız** | İç çözünürlükler Yüksek 640p / Orta 512p / Performans 384p; render yolu ~5× hızlandı, **Otomatik iç ölçekleme** kare süresini ölçüp ölçeği kendisi ayarlar |
+
 ## Neden "Inferno Protocol grafiği + Labirent mantığı"
 
 | Katman | Inferno Protocol'ten | Labirent: Ölümcül Kaçış'tan |
@@ -32,7 +42,8 @@ Doku atlası: [`docs/doku-atlasi.png`](docs/doku-atlasi.png) — tüm dokular `a
 |---|---|
 | 🖼️ **Gerçek pencere** | Pencere boyutu/konumu hatırlanır, tam ekran (F11), minimum 1024×640 |
 | 💾 **Dosya tabanlı kayıt** | 4 slot (`slot-0…3.json`) — 0 numara otomatik kayıt; her slotta gün, evre, rune sayısı, can ve tarih görünür |
-| ⚙️ **Kalıcı ayarlar** | `settings.json`: grafik kalitesi (yüksek/orta/performans), ses, fare hassasiyeti, ters Y, ekran sarsıntısı, odak kaybında duraklat |
+| ⚙️ **Kalıcı ayarlar** | `settings.json`: grafik kalitesi, iç ölçekleme (otomatik/düşük/normal/tam), ses, fare eğrisi + yumuşatma + hassasiyet, nişan yardımı, kol ölü bölgesi/eğrisi/hassasiyeti, koşu ve eğilme kipi, kamera sallanması, ekran sarsıntısı, odak kaybında duraklat |
+| 🎛️ **Her şeyi ayarla** | Görünüm/Ses/Kontrol sekmeleri; `TUŞ ATAMALARI` ekranında 23 eylem için tuş değiştir/sil/sıfırla — değişiklikler anında kaydedilir |
 | 📸 **Ekran görüntüsü** | F12 → `Resimler/Labirent Protokolu/labirent-<tarih>.png`, çekimden önce HUD gizlenir |
 | 🏆 **Başarımlar** | 12 başarım tek profil dosyasında (`achievements.json`); `F2` ile liste, kayıtlardan bağımsız |
 | 🧭 **Yerel Türkçe menü** | Oyun / Görünüm / Ses / Yardım; Ctrl+S kaydet, Ctrl+O yükle, F12 ekran görüntüsü, F11 tam ekran |
@@ -50,7 +61,7 @@ programda bu ekranı gösterir. İki yol var:
 
 1. **Ek bilgi → Yine de yükle** (10 saniye).
 2. Ya da hiç uyarı görmemek için indirdikten sonra bir kez engeli kaldır:
-   `Unblock-File "$env:USERPROFILE\Downloads\LabirentProtokolu-Kurulum-1.0.1-x64.exe"`
+   `Unblock-File "$env:USERPROFILE\Downloads\LabirentProtokolu-Kurulum-1.1.0-x64.exe"`
    (Dosya Gezgini'nde sağ tık → Özellikler → **Engellemeyi kaldır** ile aynı şey.)
 3. Kurulumdan hiç hoşlanmıyorsan `LabirentProtokolu-Klasor-*.zip` sürümünü indir, klasöre çıkar,
    `LABIRENT PROTOKOLU.exe` dosyasını çalıştır.
@@ -60,11 +71,11 @@ Dosyanın gerçekliğini her zaman yanında yayınlanan `SHA256SUMS-win.txt` ile
 
 ## İndir ve oyna
 
-Güncel sürüm **v1.0.1** — hazır kurulum dosyaları (Windows kurulum / klasör / taşınabilir, macOS dmg, Linux AppImage + deb):
+Güncel sürüm **v1.1.0** — hazır kurulum dosyaları (Windows kurulum / klasör / taşınabilir, macOS dmg, Linux AppImage + deb):
 
 **➡ https://github.com/arreasonn-jpg/MathVerse/releases/latest**
 
-Etiket atıldığında (örn. `v1.0.1`) bu paketler GitHub Actions tarafından otomatik üretilir
+Etiket atıldığında (örn. `v1.1.0`) bu paketler GitHub Actions tarafından otomatik üretilir
 (`.github/workflows/paket.yml`); elle tetiklemek için Actions → *Paket üret* → **Run workflow**.
 
 ## Kurulum / Çalıştırma
@@ -76,15 +87,15 @@ dosya konumları için: **[docs/KURULUM.md](docs/KURULUM.md)**
 
 | Platform | Dosya | Not |
 |---|---|---|
-| Windows | `LabirentProtokolu-Kurulum-1.0.1-x64.exe` | NSIS kurulumu (Türkçe sihirbaz), klasör + masaüstü/Başlat menüsü kısayolu |
-| Windows | `LabirentProtokolu-Tasinabilir-1.0.1-x64.exe` | Kurulumsuz taşınabilir sürüm (USB'den çalışır) |
-| Windows | `LabirentProtokolu-Klasor-1.0.1-x64.zip` | Klasöre çıkarıp çalıştır: ne kurulum ne uyarı |
-| macOS | `LabirentProtokolu-1.0.1-arm64.dmg` / `-x64.dmg` | Apple Silicon + Intel |
-| Linux | `LabirentProtokolu-1.0.1-x86_64.AppImage` / `.deb` | `chmod +x` sonrası çift tıkla, ya da `dpkg -i` |
+| Windows | `LabirentProtokolu-Kurulum-1.1.0-x64.exe` | NSIS kurulumu (Türkçe sihirbaz), klasör + masaüstü/Başlat menüsü kısayolu |
+| Windows | `LabirentProtokolu-Tasinabilir-1.1.0-x64.exe` | Kurulumsuz taşınabilir sürüm (USB'den çalışır) |
+| Windows | `LabirentProtokolu-Klasor-1.1.0-x64.zip` | Klasöre çıkarıp çalıştır: ne kurulum ne uyarı |
+| macOS | `LabirentProtokolu-1.1.0-arm64.dmg` / `-x64.dmg` | Apple Silicon + Intel |
+| Linux | `LabirentProtokolu-1.1.0-x86_64.AppImage` / `.deb` | `chmod +x` sonrası çift tıkla, ya da `dpkg -i` |
 
 > **Kurulum dosyalarını indirmenin en kolay yolu:** GitHub → **Actions** → *Paket üret* →
 > **Run workflow**. Üç platform için paketler üretilir ve çalışmanın **Artifacts** bölümünden
- > indirilebilir; `v1.0.1` gibi bir etiket atarsan dosyalar doğrudan **Releases** sayfasına eklenir.
+ > indirilebilir; `v1.1.0` gibi bir etiket atarsan dosyalar doğrudan **Releases** sayfasına eklenir.
 > Kendi bilgisayarında derlemek istersen aşağıdaki adımlar yeterlidir.
 
 ### Kaynaktan çalıştırma (geliştirici)
@@ -138,6 +149,8 @@ Electron binary'si olmadan da doğrular.
 | `TAB` | Günlük |
 | `ESC` | Duraklat / geri |
 | `F11` | Tam ekran · `F12` Ekran görüntüsü · `Ctrl+S` Kaydet · `Ctrl+O` Yükle |
+
+> Tüm tuşlar **Duraklat → TUŞ ATAMALARI** ekranından değiştirilebilir (bkz. `docs/KURULUM.md`).
 
 **Oyun kolu:** sol çubuk yürür, sağ çubuk bakar, çubuğu sonuna kadar itmek koşar; `A` etkileşim,
 `B` fener, `X` mızrak, `Y` araç kullan, `LB/RB` araç değiştir, `LT` eğil, `RT` saldırı,

@@ -55,7 +55,20 @@ const DEFAULTS = {
   shake: true,
   fullscreen: false,
   invertY: false,
-  hudScale: 1.0
+  hudScale: 1.0,
+  /* --- kontrol ve görüntü (v1.1) --- */
+  sprintMode: 'basili',        // basili | kapa
+  crouchMode: 'basili',        // basili | kapa
+  mouseCurve: 'dengeli',       // dengeli | hassas | yumusak
+  mouseSmoothing: 0.12,
+  bob: 1.0,
+  assist: true,
+  vibration: true,
+  padDeadzone: 0.18,
+  padCurve: 1.7,
+  padSens: 1.0,
+  renderScale: 'auto',         // auto | dusuk | normal | tam
+  keymap: {}
 };
 /* Ayar alanlarının sınırları — tek yerde tanımlı, hem okuma hem yazma bunu kullanır. */
 const SETTING_RULES = {
@@ -68,7 +81,19 @@ const SETTING_RULES = {
   shake: { kind: 'bool' },
   fullscreen: { kind: 'bool' },
   invertY: { kind: 'bool' },
-  hudScale: { kind: 'number', min: 0.6, max: 1.8 }
+  hudScale: { kind: 'number', min: 0.6, max: 1.8 },
+  sprintMode: { kind: 'enum', values: ['basili', 'kapa'] },
+  crouchMode: { kind: 'enum', values: ['basili', 'kapa'] },
+  mouseCurve: { kind: 'enum', values: ['dengeli', 'hassas', 'yumusak'] },
+  mouseSmoothing: { kind: 'number', min: 0, max: 0.5 },
+  bob: { kind: 'number', min: 0, max: 1.5 },
+  assist: { kind: 'bool' },
+  vibration: { kind: 'bool' },
+  padDeadzone: { kind: 'number', min: 0.05, max: 0.4 },
+  padCurve: { kind: 'number', min: 1, max: 3 },
+  padSens: { kind: 'number', min: 0.3, max: 3 },
+  renderScale: { kind: 'enum', values: ['auto', 'dusuk', 'normal', 'tam'] },
+  keymap: { kind: 'keymap' }
 };
 
 /* Geçerliyse düzeltilmiş değeri, geçersizse undefined döner. */
@@ -81,6 +106,18 @@ function coerceSetting(key, value) {
   }
   if (r.kind === 'bool') return typeof value === 'boolean' ? value : undefined;
   if (r.kind === 'enum') return r.values.indexOf(value) >= 0 ? value : undefined;
+  if (r.kind === 'keymap') {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+    const out = {};
+    for (const k of Object.keys(value)) {
+      if (!/^[a-z][a-zA-Z0-9]{0,19}$/.test(k)) continue;
+      const v = value[k];
+      if (!Array.isArray(v)) continue;
+      const keys = v.filter(x => typeof x === 'string' && /^[A-Za-z0-9+\-]{1,24}$/.test(x)).slice(0, 3);
+      if (keys.length) out[k] = keys;
+    }
+    return out;
+  }
   return undefined;
 }
 
