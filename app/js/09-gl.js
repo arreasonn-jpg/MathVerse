@@ -156,6 +156,8 @@
         if (e && /yazılım GPU/.test(e.message || '')) throw e;
       }
 
+      /* 32 bit indeks yalnızca uzantı varsa */
+      this.uintIndex = !!gl.getExtension('OES_element_index_uint');
       this.canvas = cv; this.gl = gl;
       this.W = 1; this.H = 1;
       this.scale = 1;
@@ -612,7 +614,7 @@
   /* ============================================================
      GEOMETRİ: bölüm bölüm dünya ağı
      ============================================================ */
-  const CHUNK = 32;
+  const CHUNK = 16;      /* 16x16 karo: köşe sayısı 65535'in altında kalır (Uint16 indeks) */
 
   GL._chunkAt = function (cx, cy) {
     const key = cx + ':' + cy;
@@ -730,7 +732,9 @@
     gl.bindBuffer(gl.ARRAY_BUFFER, ch.vbo || (ch.vbo = gl.createBuffer()));
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(verts), gl.STATIC_DRAW);
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ch.ibo || (ch.ibo = gl.createBuffer()));
+    /* 16x16 bölümde köşe sayısı 65k'yı aşmaz; yine de emniyet kemeri */
     const big = verts.length / 10 > 65000;
+    if (big && !this.uintIndex) { ch.big = false; ch.count = 0; ch.stamp = this.worldStamp; return; }
     gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, big ? new Uint32Array(idx) : new Uint16Array(idx), gl.STATIC_DRAW);
     ch.count = idx.length;
     ch.big = big;
@@ -851,7 +855,7 @@
       const fy = SW / (2 * FOVK);
 
       if (v.world !== this.worldRef) { this.worldRef = v.world; this.invalidate(); }
-      this._updateChunks(v.px, v.py, 4);
+      this._updateChunks(v.px, v.py, 3);
 
       const eyeY = v.zc;
       const pitchAng = Math.atan2(v.pitch || 0, fy);
@@ -1161,6 +1165,9 @@
     const l = Math.sqrt(x * x + y * y + z * z) || 1;
     return [x / l, y / l, z / l];
   }
+
+  /* test kancası: projeksiyon/bakış matematiği dışarıdan doğrulanabilsin */
+  GL._math = { perspective: perspective, viewMatrix: viewMatrix, mul: mul, invert: invert, mat4: mat4 };
 
   MV.GL = GL;
 })(MV);

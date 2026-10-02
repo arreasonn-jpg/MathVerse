@@ -252,6 +252,59 @@ ok(nullRects === 0, 'taşan/boş kare yok (taşan: ' + nullRects + ')');
 ok(maxW <= 1024 && maxH <= 1024, 'en büyük kare: ' + maxW + '×' + maxH);
 ok(!!srects.griever || !!srects.griever_walk || Object.keys(srects).some(k => k.indexOf('griever') === 0), 'Griever sprite’ı atlas içinde');
 
+/* ---------------- 3c) kamera/projeksiyon matematiği ---------------- */
+section('Projeksiyon ve bakış matrisi');
+const M = GL._math;
+const W3 = 683, H3 = 384, FOVK3 = 0.66;
+const fy3 = W3 / (2 * FOVK3);
+function project(world, cam) {
+  const proj = M.perspective(M.mat4(), FOVK3, W3 / H3, 0.05, 400);
+  const view = M.viewMatrix(M.mat4(), cam.x, cam.zc, cam.y, cam.yaw, cam.pitch || 0, cam.roll || 0);
+  const VP = M.mul(M.mat4(), proj, view);
+  const x = world[0], y = world[1], z = world[2];
+  const cx = VP[0] * x + VP[4] * y + VP[8] * z + VP[12];
+  const cy = VP[1] * x + VP[5] * y + VP[9] * z + VP[13];
+  const cw = VP[3] * x + VP[7] * y + VP[11] * z + VP[15];
+  return { x: cx / cw, y: cy / cw, w: cw };
+}
+const cam = { x: 10, y: 10, zc: 1.6, yaw: 0, pitch: 0, roll: 0 };
+const ahead = project([12, 1.6, 10], cam);      // ileri (+x yönü, yaw=0)
+ok(Math.abs(ahead.x) < 0.02 && Math.abs(ahead.y) < 0.02, 'tam karşıdaki nokta ekran merkezine düşer (' + ahead.x.toFixed(3) + ', ' + ahead.y.toFixed(3) + ')');
+const right = project([12, 1.6, 11], cam);      // sağ taraf (+z = sağ)
+const left = project([12, 1.6, 9], cam);        // sol taraf
+ok(right.x > 0.05, 'kameranın sağındaki nokta ekranın sağına düşer (x=' + right.x.toFixed(3) + ')');
+ok(left.x < -0.05, 'kameranın solundaki nokta ekranın soluna düşer (x=' + left.x.toFixed(3) + ')');
+ok(Math.abs(right.x + left.x) < 0.001, 'sol/sağ simetrik (aynalama yok)');
+const up = project([12, 2.6, 10], cam);         // yukarı
+ok(up.y > 0.05, 'yukarıdaki nokta ekranın üstüne düşer (y=' + up.y.toFixed(3) + ')');
+const behind = project([8, 1.6, 10], cam);
+ok(behind.w < 0, 'arkadaki nokta kırpılır (w=' + behind.w.toFixed(2) + ')');
+/* eğim ve yatış: kamera eğilince ufuk kayar, yatınca yön değişir */
+const camP = { x: 10, y: 10, zc: 1.6, yaw: 0, pitch: 0.5, roll: 0 };
+ok(project([12, 1.6, 10], camP).y < -0.05, 'yukarı bakışta düz nokta ekranın altına kayar');
+const camY = { x: 10, y: 10, zc: 1.6, yaw: Math.PI / 2, pitch: 0, roll: 0 };
+ok(Math.abs(project([10, 1.6, 12], camY).x) < 0.02, 'yaw=90° dönüşte (+z) nokta merkezde');
+const camR = { x: 10, y: 10, zc: 1.6, yaw: 0, pitch: 0, roll: 0.2 };
+const rolled = project([12, 1.6, 11], camR);
+ok(Math.abs(rolled.y - right.y) > 0.03, 'kamera yatışı (roll) yandaki noktayı döndürür (Δy=' + (rolled.y - right.y).toFixed(3) + ')');
+/* ters matris: ekran merkezinden ileri ışını geri kazanılmalı */
+const proj0 = M.perspective(M.mat4(), FOVK3, W3 / H3, 0.05, 400);
+const view0 = M.viewMatrix(M.mat4(), cam.x, cam.zc, cam.y, cam.yaw, 0, 0);
+const inv = M.mat4();
+M.invert(inv, M.mul(M.mat4(), proj0, view0));
+function unproject(sx, sy) {
+  const cx = inv[0] * sx + inv[4] * sy + inv[8] * 1 + inv[12];
+  const cy = inv[1] * sx + inv[5] * sy + inv[9] * 1 + inv[13];
+  const cz = inv[2] * sx + inv[6] * sy + inv[10] * 1 + inv[14];
+  const cw = inv[3] * sx + inv[7] * sy + inv[11] * 1 + inv[15];
+  return [cx / cw, cy / cw, cz / cw];
+}
+const c0 = unproject(0, 0);
+ok(c0[0] > cam.x + 10, 'ekran merkezi ileri yönü verir (x=' + c0[0].toFixed(1) + ')');
+ok(Math.abs(c0[1] - cam.zc) < 0.4, 'merkez ışını ufukta kalır (y=' + c0[1].toFixed(2) + ')');
+const cL = unproject(-0.8, 0), cR = unproject(0.8, 0);
+ok(cL[2] !== cR[2], 'sol/sağ ışınlar farklı yönlere gider');
+
 /* ---------------- 4) dünya + render ---------------- */
 section('Dünya ağları ve çizim');
 const world = MV.Maze.genWorld(1234);
@@ -283,6 +336,7 @@ for (const k in GL.chunks) {
   if (ch.vbo && ch.count) { built++; vertsTotal += ch.verts || 0; idxTotal += ch.count; }
 }
 ok(built > 0, 'kurulan chunk ağı: ' + built + ' (toplam ' + Object.keys(GL.chunks).length + ')');
+ok(glImpl._meshes.every(m => m.length / 10 < 65535), 'hiçbir bölüm 65535 köşeyi aşmıyor (Uint16 indeks güvenli)');
 ok(idxTotal > 0, 'toplam indeks: ' + idxTotal.toLocaleString('tr-TR'));
 
 /* ağlardaki slotlar gerçekten atlas aralığında mı? (ham GPU tamponları) */
