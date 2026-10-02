@@ -211,6 +211,23 @@ console.log('--- tuş atama (rebind) turu ---');
   MV.Desktop.apply(re);
   assert(In.map['forward'][0] === 'KeyI', 'kaydedilip geri yüklendi: ' + In.keyLabel(In.map['forward'][0]));
   assert(In.actionFor('KeyI') === 'forward', 'yeni tuş eyleme bağlandı (' + In.actionFor('KeyI') + ')');
+  /* ekran üzerinden akış: yakalama → atama → kayıt (G.onKey yönlendirmesi) */
+  UI.openKeys();
+  let captured = null;
+  G.bindingCapture = (code) => {
+    captured = code; G.bindingCapture = null;
+    In.setBinding('crouch', code);
+    UI.saveKeys();
+  };
+  G.onKey({ code: 'KeyZ', preventDefault() { }, repeat: false });
+  assert(captured === 'KeyZ', 'tuş ekranı yakalaması G.onKey ile iletildi');
+  assert(In.map['crouch'][0] === 'KeyZ', 'yakalanan tuş eyleme atandı (crouch → Z)');
+  const savedKeys = MV.Desktop.settings.read().keymap;
+  assert(!!(savedKeys && savedKeys['crouch'] && savedKeys['crouch'][0] === 'KeyZ'),
+    'ekran ataması settings.json içine yazıldı');
+  UI.closeModal();
+  In.resetOne('crouch'); UI.saveKeys();
+
   /* kayıtlı atamayı temizle → varsayılana dönüş */
   const cleared = MV.Desktop.settings.read();
   cleared.keymap = {};
