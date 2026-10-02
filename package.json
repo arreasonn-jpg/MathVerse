@@ -1,7 +1,7 @@
 {
   "name": "labirent-protokolu",
   "productName": "LABİRENT PROTOKOLÜ",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Inferno Protocol görselliğinde, Labirent: Ölümcül Kaçış mantığında birinci şahıs hayatta kalma korku oyunu.",
   "main": "electron/main.js",
   "author": {
@@ -18,10 +18,11 @@
     "dist:linux": "electron-builder --linux",
     "dist:mac": "electron-builder --mac",
     "icons": "node tools/gen-icons.js",
-    "verify": "node tools/maze-test.js && node tools/glade-test.js && node tools/desktop-test.js && node tools/smoke-test.js && node tools/smoke-test.js --desktop && node tools/render-real.js",
+    "verify": "node tools/maze-test.js && node tools/glade-test.js && node tools/desktop-test.js && node tools/gl-test.js && node tools/smoke-test.js && node tools/smoke-test.js --desktop && node tools/render-real.js",
     "verify:game": "node tools/maze-test.js && node tools/glade-test.js && node tools/smoke-test.js && node tools/smoke-test.js --desktop",
     "verify:desktop": "node tools/desktop-test.js",
-    "test": "npm run verify"
+    "test": "npm run verify",
+    "verify:gl": "node tools/gl-test.js"
   },
   "devDependencies": {
     "electron": "^44.0.0",

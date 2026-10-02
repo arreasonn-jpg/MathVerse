@@ -17,7 +17,7 @@
     buf: null, bctx: null, img: null, buf32: null, zbuf: null,
     W: 0, H: 0, dispW: 0, dispH: 0,
     quality: 'orta', targetH: 540, scale: 1.0, autoScale: true,
-    fovMul: 1.0, _fov: 0.66, FOVK: 0.66,
+    fovMul: 1.0, _fov: 0.66, FOVK: 0.66, dynFov: 1,
     filter: 1,                     // 1: çift doğrusal doku örnekleme
     perf: { acc: 0, n: 0, avg: 16.7, cool: 0 },
     bloomCv: null, bloomCtx: null, noise: [], noiseIdx: 0,
@@ -27,7 +27,15 @@
     /* ---------------- kurulum ---------------- */
     init(canvas) {
       this.canvas = canvas;
-      this.ctx = canvas.getContext('2d', { alpha: false });
+      /* GPU hattı önce denenir: başarırsa #view yalnızca saydam kaplama
+         katmanı olur (elde tutulan eşya, fener konisi, hasar kenarı) */
+      this.gl = null;
+      if (MV.GL) {
+        MV.GL.init(canvas);
+        if (MV.GL.ok) this.gl = MV.GL;
+        this.glStatus = MV.GL.status;
+      }
+      this.ctx = canvas.getContext('2d', this.gl ? { alpha: true } : { alpha: false });
       this.buf = MV.makeCanvas(320, 180);
       this.bctx = this.buf.getContext('2d');
       this.bloomCv = MV.makeCanvas(160, 90);
@@ -35,15 +43,23 @@
       this.buildNoise();
       this.buildSkyTextures();
       this.resize();
+      if (typeof document !== 'undefined' && document.documentElement && document.documentElement.setAttribute) {
+        document.documentElement.setAttribute('data-raster', this.gl ? 'gl' : 'cpu');
+      }
     },
     setQuality(q) {
       this.quality = q || 'orta';
       this.targetH = QUALITY_H[this.quality] || 540;
       this.scale = 1.0;
       this.filter = this.quality === 'yuksek' ? 1 : 0;   // çift doğrusal doku yalnızca yüksekte
+      if (this.gl) {
+        /* ölçek: dahili çözünürlük · ss: süper örnekleme (kenar yumuşatma) */
+        this.gl.scale = this.quality === 'performans' ? 0.8 : (this.quality === 'orta' ? 0.95 : 1.0);
+        this.gl.ss = this.quality === 'performans' ? 1.0 : (this.quality === 'orta' ? 1.15 : 1.35);
+      }
       this.resize();
     },
-    setScale(s) { this.scale = clamp(s, 0.45, 1.4); this.resize(); },
+    setScale(s) { this.scale = clamp(s, 0.45, 1.4); if (this.gl) this.gl.scale = this.scale; this.resize(); },
     /* görünür tuval = pencere boyutu (donanım hızlandırmalı yükseltme),
        iç tampon = kaliteye göre düşük çözünürlük (CPU raycaster) */
     resize() {
@@ -75,6 +91,7 @@
       this.vignette = null;
       this.ctx.imageSmoothingEnabled = true;
       if ('imageSmoothingQuality' in this.ctx) this.ctx.imageSmoothingQuality = 'high';
+      if (this.gl) this.gl.setSize(this.dispW, this.dispH);
     },
 
     /* bulut ve yıldız dokuları: bir kez üretilir, GPU katmanında döşenir */
@@ -168,6 +185,7 @@
       }
       this.texData = td;
       this.tex = tex;
+      if (this.gl && !this.gl.prepared) this.gl.prepare(tex);
       this.TS = tex.walls[1] ? tex.walls[1].width : 128;
       this.TMASK = this.TS - 1;
       this.TSHIFT = Math.round(Math.log2(this.TS));
@@ -176,6 +194,20 @@
 
     /* ---------------- performans: dinamik çözünürlük ---------------- */
     tick(dt) {
+      /* GPU: ölçek zaten kalite ayarından gelir, yalnızca ağır sahnelerde kıs */
+      if (this.gl && this.gl.ok) {
+        if (this.autoScale) {
+          const p = this.perf;
+          p.acc += dt; p.n++;
+          if (p.n >= 40) {
+            p.avg = p.acc / p.n * 1000;
+            p.acc = 0; p.n = 0;
+            if (p.avg > 24 && this.gl.scale > 0.7) { this.gl.scale = Math.max(0.7, this.gl.scale - 0.05); this.resize(); }
+            else if (p.avg < 12 && this.gl.scale < 1.0) { this.gl.scale = Math.min(1.0, this.gl.scale + 0.05); this.resize(); }
+          }
+        }
+        return;
+      }
       const p = this.perf;
       p.acc += dt; p.n++;
       if (p.n >= 30) {
@@ -194,11 +226,20 @@
        ANA ÇİZİM
        ============================================================ */
     draw(v) {
+      /* ---- GPU hattı ---- */
+      if (this.gl && this.gl.ok && this.gl.prepared) {
+        if (this.gl.worldRef && this.gl.worldRef !== v.world) { /* dünya değişti */ }
+        if (this.gl.render(v, this)) {
+          this.drawOverlay(v);
+          return;
+        }
+      }
       const W = this.W, H = this.H;
       const world = v.world;
       const px = v.px, py = v.py, pa = v.pa;
       const zc = v.zc, pitch = v.pitch || 0;
-      const FOVK = this.FOVK * (this.fovMul || 1);
+      /* oyuncu FOV ayarı (fovMul) ile koşu/nişan vuruşu (dynFov) ayrı çarpılır */
+      const FOVK = this.FOVK * (this.fovMul || 1) * (this.dynFov || 1);
       this._fov = FOVK;
       const fx = W / (2 * FOVK), fy = fx;
       const horizon = H * 0.5 + pitch;
@@ -312,12 +353,24 @@
       const ceilData = this.texData.ceil, ceilN = this.texData.ceilNormal;
       const pick = this.cellPick(world);
 
+      const fogFull = 1 / Math.max(1e-4, fogD);
+      const fogCol = rgba(fogR | 0, fogG | 0, fogB | 0, 255);
       /* ---- tavan (ufkun üstü) ---- */
       for (let y = Math.max(0, Math.floor(horizon) - 1); y >= 0; y -= 2) {
         const p = horizon - y;
         if (p <= 0) continue;
         const d = zc * fy / p;
         if (!(d > 0) || d > 400) continue;
+        if (d > fogFull) {                                   /* kalan tüm satırlar sis */
+          for (let yy = y; yy >= 0; yy--) { buf[yy * W] = fogCol; }
+          const row0 = y * W;
+          for (let x = 1; x < W; x++) {
+            buf[row0 + x] = fogCol;
+            if (y + 1 < H) buf[row0 + W + x] = fogCol;
+          }
+          for (let yy = y - 1; yy >= 0; yy--) { const r = yy * W; for (let x = 1; x < W; x++) buf[r + x] = fogCol; }
+          break;
+        }
         const rowA = y * W, rowB = (y + 1 < H) ? (y + 1) * W : -1;
         const stepX = d * planeX * 2 / W, stepY = d * planeY * 2 / W;
         let wx = px + d * (dirX - planeX), wy = py + d * (dirY - planeY);
@@ -357,6 +410,10 @@
         if (p <= 0) continue;
         const d = zc * fy / p;
         if (!(d > 0) || d > 400) continue;
+        if (d > fogFull) {                                   /* kalan tüm satırlar sis */
+          for (let yy = y; yy < H; yy++) { const r = yy * W; for (let x = 0; x < W; x++) buf[r + x] = fogCol; }
+          break;
+        }
         const rowA = y * W, rowB = (y + 1 < H) ? (y + 1) * W : -1;
         const stepX = d * planeX * 2 / W, stepY = d * planeY * 2 / W;
         let wx = px + d * (dirX - planeX), wy = py + d * (dirY - planeY);
@@ -419,7 +476,10 @@
       const light = v.light, torch = v.torch;
       const sunX = v.sunDir[0], sunY = v.sunDir[1];
       const sunC = v.sunCol, ambient = v.ambient;
-      const maxGuard = Math.max(world.W, world.H) * 2;
+      /* sisin tamamen örttüğü mesafeden ötesini aramak boşuna: ışın bütçesi
+         ~1/fogDens karo ile sınırlanır (büyük haritada büyük kazanç) */
+      const fogFull = 1 / Math.max(1e-4, fogD);
+      const maxGuard = Math.min(4096, Math.ceil(fogFull) + 6);
       const colU = R._colU || (R._colU = new Float32Array(TS));
       const colC = R._colC || (R._colC = new Float32Array(TS * 3));
 
@@ -440,11 +500,15 @@
           const isGate = world.gate[i] === 1;
           if (world.solid[i] === 1 || (isGate && !gatesOpen)) { hit = 1; texId = world.wall[i]; hitI = i; }
         }
-        if (!hit) { zb[x] = 400; continue; }
+        let beyondFog = false;
+        if (!hit) {
+          /* ışın bütçesi bitti: bu sütun tamamen sise gömülü → sis duvarı */
+          beyondFog = true; hit = 1; texId = -1; hitI = -1;
+        }
         const perp = side === 0 ? (sdistX - deltaX) : (sdistY - deltaY);
-        const dp = Math.max(0.02, perp);
+        const dp = beyondFog ? fogFull + 0.5 : Math.max(0.02, perp);
         zb[x] = dp;
-        const h = world.hscale ? (world.hscale[hitI] / 10) : 4;
+        const h = (hitI >= 0 && world.hscale) ? (world.hscale[hitI] / 10) : 4;
         const yTop = horizon - (h - zc) * fy / dp;
         const yBot = horizon + zc * fy / dp;
         const startY = Math.max(0, Math.ceil(yTop));
@@ -461,6 +525,12 @@
         const iu = uTex | 0, fu = uTex - iu;
         const nx = ((iu + 1) & TM);
 
+        if (beyondFog) {                                    /* sis duvarı: doku örneklemesi yok */
+          const col = rgba(fogR | 0, fogG | 0, fogB | 0, 255);
+          for (let y = startY; y <= endY; y++) buf[y * W + x] = col;
+          if (startY > 0) buf[(startY - 1) * W + x] = rgba(fogR | 0, fogG | 0, fogB | 0, 255);
+          continue;
+        }
         let data = walls[texId];
         let nrm = normals[texId], spc = specs[texId];
         if ((!data || !data.length) && this.texData.variant[texId] && this.texData.variant[texId].length) {
@@ -679,6 +749,52 @@
             }
           }
         }
+      }
+    },
+
+    /* ---------------- GPU hattı kaplaması (ekran çözünürlüğü) ----------------
+       Dünya GPU'da çizildiği için yalnızca ekran üstü katmanlar burada:
+       elde tutulan eşya, fener konisi, hasar kenarı. */
+    drawOverlay(v) {
+      const c = this.ctx, W = this.dispW, H = this.dispH;
+      if (!c) return;
+      c.setTransform(1, 0, 0, 1, 0, 0);
+      c.globalCompositeOperation = 'source-over';
+      c.globalAlpha = 1;
+      c.clearRect(0, 0, W, H);
+      const held = v.held;
+      const sway = v.sway || { x: 0, y: 0 };
+      if (held) {
+        for (const it of held) {
+          const sd = this.texData.sprites[it.sprite];
+          if (!sd || !sd.canvas) continue;
+          const s = (it.scale || 1) * (H / 540);
+          const w = sd.canvas.width * s, h = sd.canvas.height * s;
+          if (w < 1 || h < 1) continue;
+          const cx = W * (it.x === undefined ? 0.5 : it.x) + sway.x * 26 + (v.bobX || 0) * 6;
+          const cy = H + (it.y || 0) * (H / 540) - h + Math.sin(v.time * 1.8) * 1.6 + sway.y * 18 + (v.bobY || 0) * 4 + (it.lift || 0) * h;
+          c.save();
+          c.globalAlpha = clamp(0.30 + v.light * 0.8 + v.torch * 0.4, 0, 1);
+          c.translate(cx, cy);
+          c.rotate((it.rot || 0) + sway.x * 0.05);
+          c.drawImage(sd.canvas, -w / 2, -h / 2, w, h);
+          c.restore();
+        }
+      }
+      /* fener konisi (ekran aydınlatması) */
+      if (v.torch > 0.02 && c.createRadialGradient) {
+        const g = c.createRadialGradient(W * 0.5, H * 0.62, H * 0.03, W * 0.5, H * 0.62, H * 1.05);
+        const k = v.torch * (0.34 + v.light * 0.66);
+        g.addColorStop(0, 'rgba(255,236,198,' + (0.22 * k).toFixed(3) + ')');
+        g.addColorStop(0.45, 'rgba(255,196,124,' + (0.10 * k).toFixed(3) + ')');
+        g.addColorStop(1, 'rgba(255,160,80,0)');
+        c.fillStyle = g; c.fillRect(0, 0, W, H);
+      }
+      /* hasar kenarı */
+      if (v.hurt > 0.02) {
+        c.strokeStyle = 'rgba(170,18,10,' + (v.hurt * 0.55).toFixed(2) + ')';
+        c.lineWidth = 7 * (H / 540);
+        c.strokeRect(0, 0, W, H);
       }
     },
 

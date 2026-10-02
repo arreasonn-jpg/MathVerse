@@ -34,13 +34,13 @@ SmartScreen uyarısını tetikleyen şey bu işarettir. Kaldırınca uyarı çı
 - **PowerShell (tek satır):**
 
 ```powershell
-Unblock-File "$env:USERPROFILE\Downloads\LabirentProtokolu-Kurulum-1.1.0-x64.exe"
+Unblock-File "$env:USERPROFILE\Downloads\LabirentProtokolu-Kurulum-1.2.0-x64.exe"
 ```
 
 Klasör (zip) sürümünü indirdiysen önce arşivi aç, sonra klasördekilerin tamamını aç:
 
 ```powershell
-Expand-Archive "$env:USERPROFILE\Downloads\LabirentProtokolu-Klasor-1.1.0-x64.zip" -DestinationPath "$env:USERPROFILE\Desktop\Labirent"
+Expand-Archive "$env:USERPROFILE\Downloads\LabirentProtokolu-Klasor-1.2.0-x64.zip" -DestinationPath "$env:USERPROFILE\Desktop\Labirent"
 Get-ChildItem "$env:USERPROFILE\Desktop\Labirent" -Recurse | Unblock-File
 ```
 
@@ -49,7 +49,7 @@ Get-ChildItem "$env:USERPROFILE\Desktop\Labirent" -Recurse | Unblock-File
 Her sürümün yanında `SHA256SUMS-win.txt` yayınlanır. İndirdiğin dosyanın özetini karşılaştır:
 
 ```powershell
-Get-FileHash -Algorithm SHA256 "$env:USERPROFILE\Downloads\LabirentProtokolu-Kurulum-1.1.0-x64.exe"
+Get-FileHash -Algorithm SHA256 "$env:USERPROFILE\Downloads\LabirentProtokolu-Kurulum-1.2.0-x64.exe"
 ```
 
 Çıkan değer, `SHA256SUMS-win.txt` içindeki satırla **birebir** aynı olmalı. Eşleşiyorsa dosya
@@ -84,12 +84,12 @@ bozulmamış ve değiştirilmemiş demektir.
 
 1. **Hazır paket (önerilen):** GitHub → **Actions** → *Paket üret* → **Run workflow**.
    Çalışma bitince sayfanın altındaki **Artifacts** bölümünden `Windows (kurulum + taşınabilir)`
-   dosyasını indir. Depoya `v1.1.0` gibi bir etiket atılırsa dosyalar **Releases** sayfasına eklenir.
+   dosyasını indir. Depoya `v1.2.0` gibi bir etiket atılırsa dosyalar **Releases** sayfasına eklenir.
 2. **Kendi bilgisayarında derle:** `npm install && npm run dist:win` (bkz. bölüm 9).
 
 ### 2.1 Kurulumlu sürüm (NSIS)
 
-1. `LabirentProtokolu-Kurulum-1.1.0-x64.exe` dosyasına çift tıkla.
+1. `LabirentProtokolu-Kurulum-1.2.0-x64.exe` dosyasına çift tıkla.
 2. Windows "Bilinmeyen yayıncı" uyarısı gösterirse: **Ek bilgi → Yine de yükle**
    (dosya imzalı bir sertifikayla değil, topluluk sürümü olarak üretilmiştir).
 3. Kurulum klasörünü seç → **Kur**.
@@ -99,13 +99,13 @@ Kurulum yeri (varsayılan): `%LOCALAPPDATA%\Programs\Labirent Protokolu`
 
 ### 2.2 Klasör (zip) sürümü — kurulum da yok, uyarı da yok
 
-`LabirentProtokolu-Klasor-1.1.0-x64.zip` dosyasını indir; **bölüm 0 / Çözüm B**'deki `Unblock-File`
+`LabirentProtokolu-Klasor-1.2.0-x64.zip` dosyasını indir; **bölüm 0 / Çözüm B**'deki `Unblock-File`
 komutunu arşive uygula, klasöre çıkar ve içindeki `LABIRENT PROTOKOLU.exe` dosyasına çift tıkla.
 Kurulum yapılmaz, kayıt defteri değişmez; oyunu bir USB belleğe bile kopyalayabilirsin.
 
 ### 2.3 Taşınabilir sürüm (portable)
 
-`LabirentProtokolu-Tasinabilir-1.1.0-x64.exe` kurulum gerektirmez: dosyayı bir klasöre ya da USB belleğe kopyala ve
+`LabirentProtokolu-Tasinabilir-1.2.0-x64.exe` kurulum gerektirmez: dosyayı bir klasöre ya da USB belleğe kopyala ve
 çift tıkla. Kayıtlar ve ayarlar yine bilgisayarın kullanıcı klasörüne yazılır (bkz. bölüm 5);
 taşınabilir çalıştırılabilir dosyanın yanına veri bırakmaz.
 
@@ -119,7 +119,7 @@ Kaldırma, kayıt dosyalarını **silmez** (bölüm 5'teki klasörü elle silebi
 
 ## 3. macOS
 
-1. `LabirentProtokolu-1.1.0-arm64.dmg` (Apple Silicon) ya da `-x64.dmg` (Intel) dosyasını aç.
+1. `LabirentProtokolu-1.2.0-arm64.dmg` (Apple Silicon) ya da `-x64.dmg` (Intel) dosyasını aç.
 2. İçindeki **Labirent Protokolu** simgesini **Applications** klasörüne sürükle.
 3. İlk açılışta "geliştirici doğrulanamadı" uyarısı çıkarsa:
    **Sistem Ayarları → Gizlilik ve Güvenlik → Yine de Aç** ya da uygulamaya sağ tık → **Aç**.
@@ -132,8 +132,8 @@ Kaldırma, kayıt dosyalarını **silmez** (bölüm 5'teki klasörü elle silebi
 ### 4.1 AppImage (kurulumsuz, önerilen)
 
 ```bash
-chmod +x LabirentProtokolu-1.1.0-x86_64.AppImage
-./LabirentProtokolu-1.1.0-x86_64.AppImage
+chmod +x LabirentProtokolu-1.2.0-x86_64.AppImage
+./LabirentProtokolu-1.2.0-x86_64.AppImage
 ```
 
 Sanal ekranda çalıştırıyorsan: `--no-sandbox` gerekebilir (`./AppImage --no-sandbox`).
@@ -141,7 +141,7 @@ Sanal ekranda çalıştırıyorsan: `--no-sandbox` gerekebilir (`./AppImage --no
 ### 4.2 deb paketi (Debian / Ubuntu / Mint)
 
 ```bash
-sudo dpkg -i labirent-protokolu_1.1.0_amd64.deb
+sudo dpkg -i labirent-protokolu_1.2.0_amd64.deb
 # eksik bağımlılık olursa:
 sudo apt-get -f install
 ```

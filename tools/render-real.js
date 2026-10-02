@@ -39,7 +39,7 @@ global.localStorage = { getItem: (k) => (k in storage ? storage[k] : null), setI
 
 const root = path.join(__dirname, '..');
 global.MV = {};
-for (const f of ['00-core.js', '05-desktop.js', '07-input.js', '10-textures.js', '20-maze.js', '30-render.js', '40-audio.js', '50-ai.js', '60-game.js', '70-ui.js']) {
+for (const f of ['00-core.js', '05-desktop.js', '07-input.js', '09-gl.js', '10-textures.js', '20-maze.js', '30-render.js', '40-audio.js', '50-ai.js', '60-game.js', '70-ui.js']) {
   new Function(fs.readFileSync(path.join(root, 'app', 'js', f), 'utf8'))();
 }
 const MV = global.MV, G = MV.Game, UI = MV.UI;

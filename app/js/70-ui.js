@@ -48,7 +48,19 @@
     { key: 'muted', label: 'SES', values: [false, true],
       fmt: (v) => v ? 'KAPALI' : 'AÇIK', hint: '' },
     { key: 'fps', label: 'FPS SAYACI', values: [false, true],
-      fmt: (v) => v ? 'AÇIK' : 'KAPALI', hint: 'Sağ üstte kare hızı göstergesi (F3)' }
+      fmt: (v) => v ? 'AÇIK' : 'KAPALI', hint: 'Sağ üstte kare hızı göstergesi (F3)' },
+    { key: 'gpuMode', label: 'GRAFİK HATTI', values: ['auto', 'gpu', 'cpu'],
+      fmt: (v) => ({ auto: 'OTOMATİK (GPU)', gpu: 'GPU (WebGL)', cpu: 'CPU (yazılım)' }[v] || v),
+      hint: 'GPU: gerçek 3D hızlandırma, tam çözünürlük · CPU: eski yazılım render (yalnızca sorun çıkarsa)' },
+    { key: 'padMode', label: 'KOL EĞRİSİ', values: ['cift', 'klasik'],
+      fmt: (v) => v === 'cift' ? 'ÇİFT BÖLGE' : 'KLASİK',
+      hint: 'Çift bölge: iç bölgede ince nişan, dış bölgede hızlı dönüş (profesyonel standart)' },
+    { key: 'sensX', label: 'YATAY HASSASİYET', values: [0.6, 0.8, 1.0, 1.2, 1.5],
+      fmt: (v) => v.toFixed(2) + '×', hint: 'Fare X ekseni çarpanı (genel hassasiyetin üstüne)' },
+    { key: 'sensY', label: 'DİKEY HASSASİYET', values: [0.6, 0.8, 1.0, 1.2, 1.5],
+      fmt: (v) => v.toFixed(2) + '×', hint: 'Fare Y ekseni çarpanı — dikey bakışı ayrı ayarla' },
+    { key: 'adsSens', label: 'NİŞAN (ADS) HASSASİYETİ', values: [0.4, 0.5, 0.62, 0.75, 0.9],
+      fmt: (v) => Math.round(v * 100) + '%', hint: 'Mızrak hazırken (sağ tuş / LT) hassasiyet düşer, görüş daralır' }
   ];
 
   const UI = {
@@ -280,6 +292,9 @@
             <div class="setRow"><div class="sr-info"><div class="sr-name">KAYIT DOSYALARI</div>
               <div class="sr-meta dim">${info.saves}</div></div>
               <div class="sr-actions"><button class="btn" id="setSaveDir">KLASÖRÜ AÇ</button></div></div>
+            <div class="setRow"><div class="sr-info"><div class="sr-name">GRAFİK HATTI DURUMU</div>
+              <div class="sr-meta dim">${MV.GL && MV.GL.ok ? 'GPU (WebGL) etkin — tam çözünürlük, gerçek 3D' : 'CPU (yazılım) — sebep: ' + ((MV.GL && MV.GL.status) || 'WebGL yok')}</div></div>
+              <div class="sr-actions"></div></div>
             <div class="setRow"><div class="sr-info"><div class="sr-name">SÜRÜM</div>
               <div class="sr-meta dim">${info.version} · Electron ${info.electron} · Chromium ${String(info.chrome).split('.')[0]} · ${info.platform}/${info.arch}</div></div>
               <div class="sr-actions"></div></div>

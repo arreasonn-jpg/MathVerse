@@ -21,7 +21,19 @@
       }
       return true;
     },
-    /* ---------- BFS yol (hücre merkezleri) ---------- */
+    /* ---------- BFS yol (hücre merkezleri) ----------
+       Büyük harita (500x500) için: tamponlar yeniden kullanılır, ziyaret
+       işaretleri "damga" ile tutulur → çağrı başına O(ziyaret edilen). */
+    _buf(world) {
+      const n = world.W * world.H;
+      if (!this._PB || this._PB.length !== n) {
+        this._PB = new Int32Array(n);        // önceki düğüm
+        this._PS = new Int32Array(n);        // ziyaret damgası
+        this._PQ = new Int32Array(n);        // kuyruk (halka arabelleği)
+        this._stamp = 0;
+      }
+      return this._PB;
+    },
     path(world, sx, sy, tx, ty, gatesOpen, limit) {
       const W = world.W, H = world.H;
       sx = clamp(Math.floor(sx), 0, W - 1); sy = clamp(Math.floor(sy), 0, H - 1);
@@ -29,25 +41,28 @@
       const start = sy * W + sx, goal = ty * W + tx;
       if (MV.Maze.solidAt(world, tx, ty, gatesOpen) || MV.Maze.voidAt(world, tx, ty)) return null;
       if (MV.Maze.inGlade(world, tx + 0.5, ty + 0.5, 0.5)) return null;   // Kayran'a rota kurulmaz
-      const prev = new Int32Array(W * H).fill(-1);
-      const seen = new Uint8Array(W * H);
-      const q = [start]; seen[start] = 1;
-      let head = 0, found = false, visited = 0;
+      const prev = this._buf(world), stampArr = this._PS, q = this._PQ;
+      const stamp = ++this._stamp;
+      const solid = world.solid, vo = world.void, gate = world.gate;
+      const glade = MV.Maze.inGlade;
+      let head = 0, tail = 0, found = false, visited = 0;
+      q[tail++] = start; stampArr[start] = stamp; prev[start] = -1;
       const maxN = limit || (W * H);
-      while (head < q.length && visited < maxN) {
+      while (head < tail && visited < maxN) {
         const cur = q[head++]; visited++;
         if (cur === goal) { found = true; break; }
         const x = cur % W, y = (cur / W) | 0;
-        for (const d of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
-          const nx = x + d[0], ny = y + d[1];
+        for (let d = 0; d < 4; d++) {
+          const nx = x + (d === 0 ? 1 : d === 1 ? -1 : 0), ny = y + (d === 2 ? 1 : d === 3 ? -1 : 0);
           if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
           const ni = ny * W + nx;
-          if (seen[ni]) continue;
-          if (world.solid[ni] === 1) continue;
-          if (world.void[ni] === 1) continue;
-          if (MV.Maze.inGlade(world, nx + 0.5, ny + 0.5, 0.5)) continue;    // güvenli bölge
-          if (world.gate[ni] === 1 && !gatesOpen) continue;
-          seen[ni] = 1; prev[ni] = cur; q.push(ni);
+          if (stampArr[ni] === stamp) continue;
+          if (solid[ni] === 1) continue;
+          if (vo[ni] === 1) continue;
+          if (gate[ni] === 1 && !gatesOpen) continue;
+          stampArr[ni] = stamp;
+          if (glade(world, nx + 0.5, ny + 0.5, 0.5)) continue;              // güvenli bölge
+          prev[ni] = cur; q[tail++] = ni;
         }
       }
       if (!found) return null;

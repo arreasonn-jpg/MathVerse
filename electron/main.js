@@ -11,7 +11,14 @@ const fs = require('fs');
 const os = require('os');
 
 const APP_NAME = 'LABİRENT PROTOKOLÜ';
-const GAME_VERSION = '1.0.1';
+const GAME_VERSION = '1.2.0';
+
+/* GPU hattı (WebGL) için: eski sürücülerde Chrome'un kara listesi
+   gerçek GPU'yu engelleyebiliyor; oyunun kendi yedeği zaten var. */
+try {
+  app.commandLine.appendSwitch('ignore-gpu-blocklist');
+  app.commandLine.appendSwitch('enable-gpu-rasterization');
+} catch (e) { }
 const MAX_SLOTS = 4;                 // 1..3 oyuncu kaydı + 0: otomatik kayıt
 const AUTO_SLOT = 0;
 
@@ -61,6 +68,11 @@ const DEFAULTS = {
   crouchMode: 'basili',        // basili | kapa
   mouseCurve: 'dengeli',       // dengeli | hassas | yumusak
   mouseSmoothing: 0.12,
+  sensX: 1.0,                  // yatay hassasiyet çarpanı
+  sensY: 1.0,                  // dikey hassasiyet çarpanı
+  adsSens: 0.62,               // nişan (ADS) hassasiyet oranı
+  padMode: 'cift',             // cift | klasik (kol tepki eğrisi)
+  gpuMode: 'auto',             // auto | gpu | cpu (grafik hattı)
   bob: 1.0,
   assist: true,
   vibration: true,
@@ -86,6 +98,11 @@ const SETTING_RULES = {
   crouchMode: { kind: 'enum', values: ['basili', 'kapa'] },
   mouseCurve: { kind: 'enum', values: ['dengeli', 'hassas', 'yumusak'] },
   mouseSmoothing: { kind: 'number', min: 0, max: 0.5 },
+  sensX: { kind: 'number', min: 0.3, max: 2.5 },
+  sensY: { kind: 'number', min: 0.3, max: 2.5 },
+  adsSens: { kind: 'number', min: 0.2, max: 1 },
+  padMode: { kind: 'enum', values: ['cift', 'klasik'] },
+  gpuMode: { kind: 'enum', values: ['auto', 'gpu', 'cpu'] },
   bob: { kind: 'number', min: 0, max: 1.5 },
   assist: { kind: 'bool' },
   vibration: { kind: 'bool' },

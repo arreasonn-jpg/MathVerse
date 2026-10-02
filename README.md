@@ -9,7 +9,7 @@ dosyası yoktur, tüm dokular, sprite'lar, sesler ve arayüz çalışma anında 
 
 ![Kayran](docs/kayran.png)
 
-## Son sürüm — v1.1.0
+## Son sürüm — v1.2.0
 
 | | |
 |---|---|
@@ -61,7 +61,7 @@ programda bu ekranı gösterir. İki yol var:
 
 1. **Ek bilgi → Yine de yükle** (10 saniye).
 2. Ya da hiç uyarı görmemek için indirdikten sonra bir kez engeli kaldır:
-   `Unblock-File "$env:USERPROFILE\Downloads\LabirentProtokolu-Kurulum-1.1.0-x64.exe"`
+   `Unblock-File "$env:USERPROFILE\Downloads\LabirentProtokolu-Kurulum-1.2.0-x64.exe"`
    (Dosya Gezgini'nde sağ tık → Özellikler → **Engellemeyi kaldır** ile aynı şey.)
 3. Kurulumdan hiç hoşlanmıyorsan `LabirentProtokolu-Klasor-*.zip` sürümünü indir, klasöre çıkar,
    `LABIRENT PROTOKOLU.exe` dosyasını çalıştır.
@@ -71,11 +71,11 @@ Dosyanın gerçekliğini her zaman yanında yayınlanan `SHA256SUMS-win.txt` ile
 
 ## İndir ve oyna
 
-Güncel sürüm **v1.1.0** — hazır kurulum dosyaları (Windows kurulum / klasör / taşınabilir, macOS dmg, Linux AppImage + deb):
+Güncel sürüm **v1.2.0** — hazır kurulum dosyaları (Windows kurulum / klasör / taşınabilir, macOS dmg, Linux AppImage + deb):
 
 **➡ https://github.com/arreasonn-jpg/MathVerse/releases/latest**
 
-Etiket atıldığında (örn. `v1.1.0`) bu paketler GitHub Actions tarafından otomatik üretilir
+Etiket atıldığında (örn. `v1.2.0`) bu paketler GitHub Actions tarafından otomatik üretilir
 (`.github/workflows/paket.yml`); elle tetiklemek için Actions → *Paket üret* → **Run workflow**.
 
 ## Kurulum / Çalıştırma
@@ -87,15 +87,15 @@ dosya konumları için: **[docs/KURULUM.md](docs/KURULUM.md)**
 
 | Platform | Dosya | Not |
 |---|---|---|
-| Windows | `LabirentProtokolu-Kurulum-1.1.0-x64.exe` | NSIS kurulumu (Türkçe sihirbaz), klasör + masaüstü/Başlat menüsü kısayolu |
-| Windows | `LabirentProtokolu-Tasinabilir-1.1.0-x64.exe` | Kurulumsuz taşınabilir sürüm (USB'den çalışır) |
-| Windows | `LabirentProtokolu-Klasor-1.1.0-x64.zip` | Klasöre çıkarıp çalıştır: ne kurulum ne uyarı |
-| macOS | `LabirentProtokolu-1.1.0-arm64.dmg` / `-x64.dmg` | Apple Silicon + Intel |
-| Linux | `LabirentProtokolu-1.1.0-x86_64.AppImage` / `.deb` | `chmod +x` sonrası çift tıkla, ya da `dpkg -i` |
+| Windows | `LabirentProtokolu-Kurulum-1.2.0-x64.exe` | NSIS kurulumu (Türkçe sihirbaz), klasör + masaüstü/Başlat menüsü kısayolu |
+| Windows | `LabirentProtokolu-Tasinabilir-1.2.0-x64.exe` | Kurulumsuz taşınabilir sürüm (USB'den çalışır) |
+| Windows | `LabirentProtokolu-Klasor-1.2.0-x64.zip` | Klasöre çıkarıp çalıştır: ne kurulum ne uyarı |
+| macOS | `LabirentProtokolu-1.2.0-arm64.dmg` / `-x64.dmg` | Apple Silicon + Intel |
+| Linux | `LabirentProtokolu-1.2.0-x86_64.AppImage` / `.deb` | `chmod +x` sonrası çift tıkla, ya da `dpkg -i` |
 
 > **Kurulum dosyalarını indirmenin en kolay yolu:** GitHub → **Actions** → *Paket üret* →
 > **Run workflow**. Üç platform için paketler üretilir ve çalışmanın **Artifacts** bölümünden
- > indirilebilir; `v1.1.0` gibi bir etiket atarsan dosyalar doğrudan **Releases** sayfasına eklenir.
+ > indirilebilir; `v1.2.0` gibi bir etiket atarsan dosyalar doğrudan **Releases** sayfasına eklenir.
 > Kendi bilgisayarında derlemek istersen aşağıdaki adımlar yeterlidir.
 
 ### Kaynaktan çalıştırma (geliştirici)

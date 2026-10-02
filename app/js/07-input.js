@@ -138,12 +138,22 @@
       }
       return out;
     },
-    /* kol çubuğu: ölü bölge + tepki eğrisi (kare/halka) */
-    stick(v, dead, expo) {
+    /* kol çubuğu: ölü bölge + anti-ölü bölge + tepki eğrisi
+       mode 'cift': çift bölgeli (iç bölge ince nişan, dış bölge hızlı dönüş) —
+       profesyonel nişancı oyunlarının standart hissi */
+    stick(v, dead, expo, mode) {
       const a = Math.abs(v);
       if (a < dead) return 0;
       const t = (a - dead) / (1 - dead);
-      return Math.sign(v) * Math.pow(t, expo === undefined ? 1.6 : expo);
+      const anti = 0.06;                                  // sıfırdan sıçrama olmasın
+      if (mode === 'cift') {
+        const inner = 0.62;                               // iç bölge sınırı
+        const k = t < inner
+          ? t * 0.72 / inner                              // ince: tam ölçeğin %72'si
+          : 0.72 + (t - inner) / (1 - inner) * 0.28;      // dış: 1.0'a tamamla
+        return Math.sign(v) * (anti + k * (1 - anti));
+      }
+      return Math.sign(v) * (anti + Math.pow(t, expo === undefined ? 1.6 : expo) * (1 - anti));
     },
     /* hedef yumuşatma (aim assist): görüş konisindeki en yakın düşmanı hafifçe çeker */
     assist(curAngle, targetAngle, strength, dt) {

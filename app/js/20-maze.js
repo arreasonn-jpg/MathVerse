@@ -10,13 +10,13 @@
 
   /* ---------- sabitler ---------- */
   const K = {
-    W: 152, H: 152,          // hücre sayısı (çift olmalı)
+    W: 500, H: 500,          // hücre sayısı (çift olmalı) — v1.2: labirent alanı ~16×
     R1: 10.5,                // Kayran yarıçapı (çim)
     R2A: 18.5,               // halka koridorunun dış sınırı
     R2B: 21.5,               // sektör duvarının dış sınırı / labirent başlangıcı
-    RAV0: 61.5,              // uçurum iç kenarı
-    RAV1: 66.5,              // uçurum dış kenarı
-    ROUT: 70,                // dış kuşak taş duvarı
+    RAV0: 230,               // uçurum iç kenarı (eski 61.5 → labirent halkası ~16 kat alan)
+    RAV1: 235,               // uçurum dış kenarı
+    ROUT: 239,               // dış kuşak taş duvarı
     VOID: 250,               // boşluk (düşme) zemin kodu
     GATE_R: 14.5,            // geçit yarıçapı
     SPOKE_ANGLES: [Math.PI / 4, 3 * Math.PI / 4, 5 * Math.PI / 4, 7 * Math.PI / 4],
@@ -176,16 +176,16 @@
     for (const a of K.GAP_ANGLES) ensureConnection(w, a, K.R2A - 0.6);
 
     /* 11) ana arterler */
-    boulevards(w, rng, 6);
+    boulevards(w, rng, 18);
 
     /* 12) uçurumu geçen kanallar */
-    channels(w, rng, 2);
+    channels(w, rng, 4);
 
     /* 13) rune taşları */
     placeRunes(w, rng);
 
     /* 14) sektör duvarlarına sistem sembolleri */
-    for (let i = 0; i < 60; i++) {
+    for (let i = 0; i < 260; i++) {
       const x = rng.int(K.W), y = rng.int(K.H);
       const r = rad(w, x, y);
       if (r > K.R2A + 2 && r < K.RAV0 - 2 && w.solid[I(w, x, y)] && w.wall[I(w, x, y)] === T.CLIFF) {
@@ -194,7 +194,7 @@
     }
 
     /* 15) gizli geçitler */
-    hiddenPassages(w, rng, 10);
+    hiddenPassages(w, rng, 34);
 
     /* 16) doğuş noktası: Kayran, Kutu'nun yanı */
     w.spawn = { x: w.cx + 4.5, y: w.cy + 4.5, a: -Math.PI * 0.75 };
@@ -453,7 +453,7 @@
   /* ---------- KAYDIRMA ----------
      İç labirent kuşağı yeni tohumla yeniden üretilir; oyuncunun bildiği
      yollar kaybolur (filmdeki "sections shift"). */
-  const SHIFT_BAND = 13;
+  const SHIFT_BAND = 34;         // her gece yer değiştiren duvar kuşağı (büyük haritayla ölçekli)
   function shiftWorld(w, day, seed) {
     const rng = RNG(((seed ^ (day * 7919)) >>> 0));
     const rin = K.R2B, rout = K.R2B + SHIFT_BAND;

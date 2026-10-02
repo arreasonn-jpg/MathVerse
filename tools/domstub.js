@@ -184,7 +184,7 @@ function setup(opts) {
 
   global.MV = {};
   const root = path.join(__dirname, '..');
-  const files = ['00-core.js', '05-desktop.js', '07-input.js', '10-textures.js', '20-maze.js', '30-render.js',
+  const files = ['00-core.js', '05-desktop.js', '07-input.js', '09-gl.js', '10-textures.js', '20-maze.js', '30-render.js',
     '40-audio.js', '50-ai.js', '60-game.js', '70-ui.js'];
   for (const f of files) new Function(fs.readFileSync(path.join(root, 'app', 'js', f), 'utf8'))();
   return { MV: global.MV, byId: byId, elements: elements, desktopAPI: global.window.desktopAPI, setGamepad: setGamepad };

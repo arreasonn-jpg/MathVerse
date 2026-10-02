@@ -20,6 +20,7 @@
     hudScale: 1.0,
     sprintMode: 'basili', crouchMode: 'basili',
     mouseCurve: 'dengeli', mouseSmoothing: 0.12, bob: 1.0,
+    sensX: 1.0, sensY: 1.0, adsSens: 0.62, padMode: 'cift', gpuMode: 'auto',
     assist: true, vibration: true,
     padDeadzone: 0.18, padCurve: 1.7, padSens: 1.0,
     renderScale: 'auto', keymap: {}
@@ -46,7 +47,7 @@
     info() {
       if (isDesktop) { try { return bridge.info(); } catch (e) { } }
       return {
-        version: '1.1.0-tarayıcı', platform: 'tarayıcı', arch: '-',
+        version: '1.2.0-tarayıcı', platform: 'tarayıcı', arch: '-',
         electron: '-', chrome: navigator.userAgent, node: '-',
         userData: '-', saves: 'localStorage', shots: '-', screens: []
       };
@@ -176,6 +177,19 @@
     apply(settings) {
       const s = settings || this.settings.read();
       if (MV.Renderer) {
+        /* grafik hattı: otomatik (GPU varsa GPU) / GPU / CPU */
+        const wantGpu = s.gpuMode !== 'cpu';
+        if (MV.GL && MV.Renderer) {
+          if (!wantGpu && MV.Renderer.gl) {
+            MV.Renderer.gl = null; MV.Renderer.useGpu = false;
+            if (MV.GL.canvas) MV.GL.canvas.style.display = 'none';
+            document.documentElement.setAttribute('data-raster', 'cpu');
+          } else if (wantGpu && MV.GL.ok && !MV.Renderer.gl) {
+            MV.Renderer.gl = MV.GL; MV.Renderer.useGpu = true;
+            if (MV.GL.canvas) MV.GL.canvas.style.display = 'block';
+            document.documentElement.setAttribute('data-raster', 'gl');
+          }
+        }
         MV.Renderer.setQuality(QUALITY_LABEL[s.quality] ? s.quality : 'orta');
         MV.Renderer.fovMul = s.fov || 1.0;
         if (s.renderScale === 'auto' || s.renderScale === undefined) {

@@ -323,7 +323,7 @@ setTimeout(async () => {
   assert(wf2.indexOf('sha256sum') >= 0 && wf2.indexOf('SHA256SUMS') >= 0, 'CI sağlama toplamı (SHA-256) üretir');
   const kurulum = fs.readFileSync(path.join(ROOT, 'docs', 'KURULUM.md'), 'utf8');
   assert(/SmartScreen/.test(kurulum) && /Unblock-File/.test(kurulum), 'kurulum kılavuzu SmartScreen ve engel kaldırma adımlarını içerir');
-  assert(pkg.version === '1.1.0', 'sürüm 1.1.0');
+  assert(pkg.version === '1.2.0', 'sürüm 1.2.0');
   assert(pkg.build.nsis.allowToChangeInstallationDirectory === true, 'kurulum klasörü seçilebilir');
   assert(Array.isArray(pkg.build.publish) && pkg.build.publish.length === 0, 'paketleme kendiliğinden yayın yapmaz');
   assert(!!pkg.build.dmg && !!pkg.build.dmg.contents, 'dmg düzeni tanımlı (Applications kısayolu)');
