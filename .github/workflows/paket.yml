@@ -110,24 +110,33 @@ jobs:
           **Inferno Protocol görselliğinde, Labirent: Ölümcül Kaçış mantığında birinci şahıs hayatta kalma-korku oyunu.**
 
           ### v1.2.0 — neler değişti
-          - **Grafikler profesyonel seviyeye çıkarıldı:** 256 px normal haritalı dokular, yakın duvarlarda tam ışık ve gerçek spekülar, duvar dibi temas gölgesi (AO), ufuk sisine bağlanan uzak duvarlar, GPU'da çizilen gökyüzü katmanı (gradyan + güneş/ay + yıldız + kayan bulutlar), çift doğrusal sprite ölçekleme ve 2× çözünürlüklü yaratık/kulübe/Kutu sprite'ları, yeniden dengelenmiş gece/fener ışığı.
-          - **Kontroller profesyonel seviyeye çıkarıldı:** dengeli/hassas/yumuşak fare eğrileri, kare hızından bağımsız yumuşatma, dikey bakışta doğru açısal dönüşüm, koşu ve eğilme için basılı tut / aç-kapa kipi, kamera sallanması şiddeti, nişan yardımı, kol ölü bölgesi-tepki eğrisi-hassasiyeti, titreşim ve **tam tuş atama ekranı** (23 eylem, değiştir/sil/sıfırla).
-          - **Yaşam alanı güvenli:** Kayran'da (kamp, Kutu, baraka çevresi) artık **hiçbir yaratık yok** — Grievers ve Böcek Bıçakları yalnızca labirent içinde avlanır; güvenli bölgeye giren yaratık anında dışarı atılır.
-          - **Performans:** iç çözünürlük yeniden dengelendi (Yüksek=640p, Orta=512p, Performans=384p) ve render yolu ~5× hızlandırıldı; yeni **Otomatik iç ölçekleme** kare süresini ölçüp ölçeği kendi ayarlar.
+
+          **1) Grafikler — pikselli görünüm bitti, gerçek GPU hattı geldi.**
+          Dünya artık CPU'da düşük çözünürlükte değil, **GPU'da (WebGL) ekranın gerçek çözünürlüğünde** çiziliyor: süper örneklemeli (SSAA) kenar yumuşatma, mipmap + 8× anizotropik doku filtreleme, gerçek 3B duvar/tavan ağları, piksel başına normal haritalı ışık (güneş + fener nokta ışığı + spekülar), gökyüzüne bağlanan üstel sis, ışın izlemeli gökyüzü (gradyan + güneş/ay + yıldız + fbm bulutlar) ve ACES ton eşlemeli son işleme (bloom, renk sapması, vinyet, film greni). Doku atlası yeniden kuruldu; 100+ karo kimliğinin tamamı (rune taşları, kapılar dâhil) doğru dokusuyla görünüyor. GPU açılmazsa oyun **otomatik olarak CPU hattına döner** ve sebebini Ayarlar'da yazar — asla siyah ekran yok.
+
+          **2) Kontroller — profesyonel seviye paketi.**
+          120 Hz alt adımlı, kare hızından bağımsız hareket; **ham fare girdisi** (işletim sistemi hızlandırması kapalı); X/Y için ayrı hassasiyet; **nişan (ADS) hassasiyeti** (sağ tuş veya kol LT ile hassasiyet düşer, görüş daralır); kol için **çift bölgeli tepki eğrisi + radyal ölü bölge**; koşarken FOV vuruşu, yana yürürken kamera yatması, inişte kamera yaylanması; fare yumuşatma varsayılanı düşürüldü. Tüm eylemler yeniden atanabilir (23 eylem).
+
+          **3) Harita — 500 × 500 karo (labirent alanı ~15.8×).**
+          159 × 159'dan **500 × 500**'e: toplam alan 10.8×, labirent kuşağı 10.430 → 164.738 karo (15.8×), yürünebilir alan ~100.880 karo. Kayran ve yaşam alanı aynı kaldı, çevresi çok daha büyük; içerik ölçeklendi (420 bitki, 22 istasyon, 48 kaynak, 20 böcek bıçağı, günde min(34, 16+gün×2) kapı); yol bulma havuzlanmış tamponlara alındı, sisin ötesi hiç taranmıyor, uzak bölüm ağları bellekten düşürülüyor.
+
+          **Yaşam alanı kuralı korundu:** Kayran'da hiçbir yaratık yok; Grievers ve Böcek Bıçakları yalnızca labirentte avlanır (test: en yakın yaratık-kare 11.69 karo > 10.5 sınır).
 
           ### İndir
           | Platform | Dosya |
           |---|---|
           | Windows | `LabirentProtokolu-Kurulum-*-x64.exe` — kurulum (masaüstü + Başlat menüsü kısayolu) |
           | Windows | `LabirentProtokolu-Tasinabilir-*-x64.exe` — kurulumsuz, USB'den çalışır |
+          | Windows | `LabirentProtokolu-Klasor-*-x64.zip` — klasöre çıkar, çalıştır |
           | macOS | `LabirentProtokolu-*-arm64.dmg` (Apple Silicon) · `-x64.dmg` (Intel) |
           | Linux | `LabirentProtokolu-*-x86_64.AppImage` (`chmod +x` sonra çift tıkla) · `*-amd64.deb` (`sudo dpkg -i`) |
 
           ### Çalıştırma
           1. Dosyayı indir, çalıştır. Windows'ta "bilinmeyen yayıncı" uyarısı çıkarsa **Ek bilgi → Yine de yükle**.
           2. Oyun Türkçe açılır. Kayıtlar ve ayarlar kullanıcı klasörüne yazılır; kaldırma bunları silmez.
+          3. Grafik hattını karşılaştırmak için: Ayarlar → GRAFİK HATTI (Otomatik / GPU / CPU).
 
-          Kontroller, kayıt konumları, sistem gereksinimleri ve sorun giderme: `docs/KURULUM.md`
+          Kontroller, kayıt konumları, sistem gereksinimleri ve sorun giderme: `docs/KURULUM.md` · Sürüm notları: `docs/SURUM-1.2.0.md`
           EOF
           if ! gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
             gh release create "$GITHUB_REF_NAME" --title "LABİRENT PROTOKOLÜ $GITHUB_REF_NAME" --notes "$NOTES" || true

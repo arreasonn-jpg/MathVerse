@@ -13,11 +13,12 @@ dosyası yoktur, tüm dokular, sprite'lar, sesler ve arayüz çalışma anında 
 
 | | |
 |---|---|
-| 💎 **Profesyonel grafik** | 256 px normal haritalı dokular, yakın duvarlarda tam ışık + gerçek spekülar, duvar dibi temas gölgesi (AO), ufuk sisine bağlanan uzak duvarlar, GPU'da çizilen gökyüzü (gradyan + güneş/ay + yıldız + kayan bulutlar), çift doğrusal sprite ölçekleme, 2× çözünürlüklü yaratık ve yapı sprite'ları, yeniden dengelenmiş gece/fener ışığı |
-| 🕹️ **Profesyonel kontrol** | Fare eğrisi (dengeli/hassas/yumuşak) + kare hızından bağımsız yumuşatma, doğru açısal dikey bakış, koşu/eğilme için basılı tut ya da aç-kapa, kamera sallanması şiddeti, nişan yardımı, kol ölü bölgesi–tepki eğrisi–hassasiyeti, titreşim |
+| 💎 **GPU grafik hattı (WebGL)** | Dünya **ekranın gerçek çözünürlüğünde GPU'da** çizilir: süper örneklemeli (SSAA) kenar yumuşatma, mipmap + 8× anizotropik doku filtreleme, gerçek 3B duvar/tavan ağları, piksel başına normal haritalı ışık (güneş + fener nokta ışığı + spekülar), gökyüzüne bağlanan üstel sis, ışın izlemeli gökyüzü (gradyan + güneş/ay + yıldız + fbm bulutlar), ACES ton eşlemeli son işleme: bloom, renk sapması, vinyet, film greni. GPU yoksa **otomatik CPU yedeği** — asla siyah ekran |
+| 🕹️ **Profesyonel kontrol** | 120 Hz alt adımlı, kare hızından bağımsız hareket; **ham fare girdisi** (OS hızlandırması kapalı); X/Y için ayrı hassasiyet; **nişan (ADS) hassasiyeti** (sağ tuş / kol LT); kol için çift bölgeli tepki eğrisi + radyal ölü bölge; koşarken FOV vuruşu, yana yürürken kamera yatması, inişte yaylanma; sallanma şiddeti ve nişan yardımı |
 | ⌨️ **Tuş atama ekranı** | 23 eylem için tuş değiştir / sil / sıfırla; çakışan tuş otomatik eski eylemden alınır, `settings.json`'a yazılır |
 | 🛖 **Yaşam alanı güvenli** | Kayran'da (kamp, Kutu, baraka çevresi) **hiçbir yaratık yok**. Grievers ve Böcek Bıçakları yalnızca labirent içinde; güvenli bölgeye giren yaratık anında dışarı atılır ve oyuncu güvendeyken avlanmaz — filmdeki gibi |
-| ⚡ **Hız** | İç çözünürlükler Yüksek 640p / Orta 512p / Performans 384p; render yolu ~5× hızlandı, **Otomatik iç ölçekleme** kare süresini ölçüp ölçeği kendisi ayarlar |
+| 🗺️ **Büyük harita** | **500 × 500 karo** (labirent alanı ~15.8×, toplam alan 10.8×). Kayran aynı kaldı, çevresi devasa: 164.738 labirent karosu, ~100.880 yürünebilir karo, günde min(34, 16+gün×2) kapı |
+| ⚡ **Hız** | GPU hattı + sisin ötesini hiç taramayan CPU yedeği; yol bulma havuzlanmış tamponlarda; uzak bölüm ağları bellekten düşürülür; **Otomatik ölçekleme** kare süresini ölçüp kendisi ayarlar |
 
 ## Neden "Inferno Protocol grafiği + Labirent mantığı"
 
