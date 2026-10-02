@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>LABİRENT PROTOKOLÜ — WICKED Deney Sahası 7</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div id="app">
+
+  <!-- ============ 3D GÖRÜNTÜ ============ -->
+  <canvas id="view" width="480" height="270"></canvas>
+
+  <!-- ============ SİNEMATİK / CRT KATMANLARI ============ -->
+  <div id="fx">
+    <div class="fx-vignette"></div>
+    <div class="fx-scan"></div>
+    <div class="fx-grain"></div>
+    <div id="fx-damage"></div>
+    <div id="fx-poison"></div>
+    <div id="fx-night"></div>
+    <div id="fx-glitch"></div>
+  </div>
+
+  <!-- ============ HUD ============ -->
+  <div id="hud">
+
+    <div id="obj" class="panel panel-tl">
+      <div class="panel-title">GÖREV</div>
+      <div id="obj-text" class="panel-body">—</div>
+      <div id="obj-sub" class="panel-sub">—</div>
+    </div>
+
+    <div id="compass">
+      <div id="compass-canvas-wrap"><canvas id="compass-c" width="420" height="34"></canvas></div>
+      <div id="sector-tag">BÖLÜM —</div>
+    </div>
+
+    <div id="clock" class="panel panel-tr">
+      <div class="row"><span class="k">GÜN</span><span id="clock-day" class="v">1</span></div>
+      <div class="row"><span class="k">FAZ</span><span id="clock-phase" class="v">GÜNDÜZ</span></div>
+      <div class="row"><span class="k">SÜRE</span><span id="clock-time" class="v">00:00</span></div>
+      <div id="clock-bar"><i id="clock-fill"></i></div>
+      <div id="danger" class="hidden">GRİEVER YAKINDA</div>
+    </div>
+
+    <div id="vitals" class="panel panel-bl">
+      <div class="bar-row">
+        <span class="bar-label">CAN</span>
+        <div class="bar hp"><i id="bar-hp"></i></div>
+        <span id="val-hp" class="bar-val">100</span>
+      </div>
+      <div class="bar-row">
+        <span class="bar-label">NEFES</span>
+        <div class="bar st"><i id="bar-st"></i></div>
+        <span id="val-st" class="bar-val">100</span>
+      </div>
+      <div class="bar-row">
+        <span class="bar-label">SESSİZ.</span>
+        <div class="bar nz"><i id="bar-noise"></i></div>
+        <span id="val-noise" class="bar-val">0</span>
+      </div>
+      <div class="bar-row conds">
+        <span id="cond-poi" class="cond hidden">ZEHİR</span>
+        <span id="cond-hun" class="cond hidden">AÇLIK</span>
+        <span id="cond-cra" class="cond hidden">KARANLIK</span>
+      </div>
+    </div>
+
+    <div id="slots">
+      <div class="slot" id="slot0"><b>1</b><span class="ic">—</span><i class="cnt">0</i></div>
+      <div class="slot" id="slot1"><b>2</b><span class="ic">—</span><i class="cnt">0</i></div>
+      <div class="slot" id="slot2"><b>3</b><span class="ic">—</span><i class="cnt">0</i></div>
+      <div class="slot" id="slot3"><b>4</b><span class="ic">—</span><i class="cnt">0</i></div>
+    </div>
+
+    <div id="torchbox" class="panel panel-br">
+      <div class="row"><span class="k">FENER</span><span id="torch-state" class="v">KAPALI</span></div>
+      <div class="bar-row"><div class="bar tb"><i id="bar-torch"></i></div></div>
+      <div class="row small"><span class="k">VERİ</span><span id="rune-count" class="v">0/8</span></div>
+      <div id="runes"></div>
+    </div>
+
+    <div id="msgcard" class="hidden"></div>
+    <div id="log"></div>
+    <div id="reticle"><i></i></div>
+    <div id="interact" class="hidden"><b>E</b> <span id="interact-txt">ETKİLEŞİM</span></div>
+    <div id="subtitle"></div>
+    <div id="hint"></div>
+    <div id="toast"></div>
+  </div>
+
+  <!-- ============ MENÜ / MODAL KATMANI ============ -->
+  <div id="overlay" class="hidden"></div>
+  <div id="modal" class="hidden"></div>
+
+  <div id="boot-warn" class="hidden">
+    <div>
+      <b>LABİRENT PROTOKOLÜ</b><br>
+      Bu deney klavye ve fare gerektirir. Başlamak için ekrana dokun/tıkla.
+    </div>
+  </div>
+
+</div>
+
+<script src="js/00-core.js"></script>
+<script src="js/10-textures.js"></script>
+<script src="js/20-maze.js"></script>
+<script src="js/30-render.js"></script>
+<script src="js/40-audio.js"></script>
+<script src="js/50-ai.js"></script>
+<script src="js/60-game.js"></script>
+<script src="js/70-ui.js"></script>
+</body>
+</html>
